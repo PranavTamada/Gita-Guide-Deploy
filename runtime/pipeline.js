@@ -57,55 +57,108 @@ const adviceTemplates = {
   sad: "Focus on one positive action you can take today"
 };
 
-const principleMap = {
-  "detachment": "Focus on effort instead of worrying about results",
-  "control mind": "Control your thoughts instead of reacting to them",
-  "self-knowledge": "Understand your inner self before making decisions",
-  "duty": "Fulfill your responsibilities without attachment to comfort",
-  "devotion": "Dedicate your actions to a higher purpose",
-  "surrender": "Release what you cannot control and trust the process",
-  "discipline": "Master yourself through focused action",
-  "knowledge": "Seek true understanding over temporary feelings",
-  "equanimity": "Remain steady in both success and failure",
-  "action": "Take right action without fear of the outcome",
-  "faith": "Trust the process even amidst uncertainty"
+const insightVariants = {
+  "detachment": [
+    "Focus on your actions instead of worrying about results",
+    "Let go of outcome pressure and act with clarity",
+    "Act with purpose, detached from the result"
+  ],
+  "control mind": [
+    "Control your thoughts instead of reacting automatically",
+    "Train your mind to stay steady under pressure",
+    "Observe your mind without being controlled by it"
+  ],
+  "self-knowledge": [
+    "Understand your inner self before making decisions",
+    "Clarity comes from knowing yourself deeply",
+    "Look inward to find the strength you need"
+  ],
+  "duty": [
+    "Fulfill your responsibilities without attachment to comfort",
+    "Perform your duty simply because it is the right thing to do",
+    "Stay committed to your path, ignoring distractions"
+  ],
+  "devotion": [
+    "Dedicate your actions to a higher purpose",
+    "Focus your heart on the deepest truth as you act",
+    "Surrender your personal motives to a higher calling"
+  ],
+  "surrender": [
+    "Release what you cannot control and trust the process",
+    "Let go of ego and embrace what unfolds",
+    "Accept the present moment completely"
+  ],
+  "discipline": [
+    "Master yourself through focused action",
+    "True freedom comes from internal discipline",
+    "Stay the course through consistent, mindful practice"
+  ],
+  "knowledge": [
+    "Seek true understanding over temporary feelings",
+    "Let wisdom guide you, not fleeting emotions",
+    "See things as they are, beyond the surface"
+  ],
+  "equanimity": [
+    "Remain steady in both success and failure",
+    "Find peace by accepting both praise and blame",
+    "Keep a balanced mind regardless of external events"
+  ],
+  "action": [
+    "Take right action without fear of the outcome",
+    "Step forward boldly and do what is needed",
+    "Let go of hesitation and act with focus"
+  ],
+  "faith": [
+    "Trust the process even amidst uncertainty",
+    "Hold tight to your deeper convictions",
+    "Have faith that your right actions will lead the way"
+  ]
 };
 
-function getFallbackInsight(verse, usedInsights) {
+function getFallbackInsight(verse, index) {
+  // Verse context differentiation
+  const chapter = parseInt(verse.chapter || (verse.id || "0").split('-')[0], 10);
+  
+  if (chapter === 2) {
+    const options = insightVariants["action"];
+    return options[index % options.length];
+  } else if (chapter === 12) {
+    const options = insightVariants["devotion"];
+    return options[index % options.length];
+  } else if (chapter === 13) {
+    const options = insightVariants["self-knowledge"];
+    return options[index % options.length];
+  }
+
+  // Principle-based insight
   const principles = verse.principles || [];
-  let candidate = null;
+  let candidateOptions = null;
 
   for (const p of principles) {
-    if (p && principleMap[p.toLowerCase()]) {
-      candidate = principleMap[p.toLowerCase()];
+    if (p && insightVariants[p.toLowerCase()]) {
+      candidateOptions = insightVariants[p.toLowerCase()];
       break;
     }
     // partial matches
-    for (const [key, value] of Object.entries(principleMap)) {
+    for (const [key, value] of Object.entries(insightVariants)) {
       if (p.toLowerCase().includes(key)) {
-        candidate = value;
+        candidateOptions = value;
         break;
       }
     }
-    if (candidate) break;
+    if (candidateOptions) break;
   }
 
-  if (!candidate) {
-    candidate = "Stay steady and act without fear";
-  }
-
-  // Prevent exact repetition if the user is getting identical insights
-  if (usedInsights.has(candidate)) {
-    const alternatives = [
+  if (!candidateOptions) {
+    candidateOptions = [
+      "Stay steady and act without fear",
       "Focus on your path and keep moving forward",
       "Release anxiety by anchoring yourself in the present",
       "Embrace clarity over confusion with steady action"
     ];
-    candidate = alternatives[usedInsights.size % alternatives.length];
   }
 
-  usedInsights.add(candidate);
-  return candidate;
+  return candidateOptions[index % candidateOptions.length];
 }
 
 // Memory function
@@ -388,12 +441,19 @@ JSON FORMAT:
   const emotionNoun = emotionMap[understanding.emotion] || understanding.emotion;
 
   const fallbackGuidanceResult = {
-    guidance: topVerses.map(v => ({
-      chapter: v.chapter,
-      verse: v.verse,
-      insight: getFallbackInsight(v),
-      connection: `This helps reduce ${emotionNoun} caused by overthinking ${understanding.situation}.`
-    })),
+    guidance: topVerses.map((v, index) => {
+      const connections = [
+        `This reduces ${emotionNoun} by shifting focus away from future worries.`,
+        `This helps you stay grounded instead of overthinking outcomes.`,
+        `This calms the mind by focusing on what you can control.`
+      ];
+      return {
+        chapter: v.chapter,
+        verse: v.verse,
+        insight: getFallbackInsight(v, index),
+        connection: connections[index % connections.length]
+      };
+    }),
     final_advice: adviceTemplates[understanding.emotion] || "Take one calm step forward"
   };
 

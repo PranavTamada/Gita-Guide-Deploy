@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bhagavad Gita — AI Wisdom Guide</title>
+  <meta name="description" content="Ask life questions and receive personalized guidance from the Bhagavad Gita powered by AI.">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,500;0,700;1,400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f0f13;
+      --bg-card: #1a1a22;
+      --bg-card-alt: #15151d;
+      --bg-input: #1e1e28;
+      --border: rgba(255,255,255,0.06);
+      --border-focus: rgba(232,175,110,0.4);
+      --text: #e8e4de;
+      --text-dim: #8a8690;
+      --text-muted: #5c5868;
+      --accent: #e8af6e;
+      --accent-glow: rgba(232,175,110,0.15);
+      --accent-deep: #c4864a;
+      --advice-bg: linear-gradient(135deg, rgba(232,175,110,0.10), rgba(196,134,74,0.06));
+      --radius: 16px;
+      --radius-sm: 10px;
+      --shadow: 0 4px 24px rgba(0,0,0,0.3);
+    }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Subtle background pattern */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(232,175,110,0.06), transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 2rem 1.25rem 4rem;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Header */
+    header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+      padding-top: 1rem;
+    }
+    .logo {
+      font-size: 2.8rem;
+      margin-bottom: 0.5rem;
+      filter: drop-shadow(0 0 12px rgba(232,175,110,0.3));
+    }
+    header h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.02em;
+    }
+    header p {
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      margin-top: 0.35rem;
+      font-weight: 300;
+    }
+
+    /* Input area */
+    .input-area {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      margin-bottom: 1rem;
+      box-shadow: var(--shadow);
+    }
+    #query-input {
+      width: 100%;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 1rem 1.15rem;
+      font-family: inherit;
+      font-size: 0.95rem;
+      color: var(--text);
+      resize: none;
+      outline: none;
+      min-height: 80px;
+      line-height: 1.65;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    #query-input:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    #query-input::placeholder { color: var(--text-muted); }
+
+    .input-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 0.85rem;
+      gap: 0.75rem;
+    }
+    .chips {
+      display: flex;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+      flex: 1;
+    }
+    .chip {
+      font-size: 0.7rem;
+      padding: 5px 12px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--text-dim);
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+    .chip:hover {
+      background: var(--accent-glow);
+      border-color: var(--accent-deep);
+      color: var(--accent);
+    }
+
+    #submit-btn {
+      font-family: inherit;
+      font-size: 0.85rem;
+      font-weight: 600;
+      padding: 9px 22px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+      color: #1a1a22;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.15s;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    #submit-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    #submit-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+    /* Idle state */
+    #idle-state {
+      text-align: center;
+      padding: 3.5rem 1rem;
+    }
+    .idle-om {
+      font-size: 3.5rem;
+      color: var(--accent);
+      opacity: 0.2;
+      font-family: 'Playfair Display', serif;
+    }
+    .idle-quote {
+      font-family: 'Playfair Display', serif;
+      font-style: italic;
+      font-size: 0.95rem;
+      color: var(--text-dim);
+      max-width: 440px;
+      margin: 0.75rem auto 0;
+      line-height: 1.7;
+    }
+
+    /* Loading */
+    #loading-state {
+      display: none;
+      align-items: center;
+      gap: 14px;
+      padding: 2.5rem 0;
+      justify-content: center;
+    }
+    .spinner {
+      width: 22px; height: 22px;
+      border: 2px solid rgba(232,175,110,0.2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-dots {
+      display: flex; gap: 4px;
+    }
+    .loading-dots span {
+      width: 6px; height: 6px;
+      background: var(--accent);
+      border-radius: 50%;
+      opacity: 0.25;
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+    .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes pulse {
+      0%,80%,100% { opacity: 0.2; transform: scale(0.85); }
+      40% { opacity: 1; transform: scale(1); }
+    }
+    .loading-text {
+      font-family: 'Playfair Display', serif;
+      font-style: italic;
+      font-size: 0.9rem;
+      color: var(--text-dim);
+    }
+
+    /* Results */
+    #results { display: none; }
+
+    .section-label {
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.65rem;
+    }
+
+    /* Understanding card */
+    .understanding-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.35rem;
+      margin-bottom: 1.25rem;
+      box-shadow: var(--shadow);
+      animation: slideUp 0.35s ease both;
+    }
+    .understanding-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1.5rem;
+    }
+    .understand-item { display: flex; flex-direction: column; gap: 2px; }
+    .understand-label {
+      font-size: 0.6rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .understand-value {
+      font-family: 'Playfair Display', serif;
+      font-style: italic;
+      font-size: 0.9rem;
+      color: var(--text);
+    }
+
+    /* Guidance cards */
+    .guidance-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 0.9rem;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      animation: slideUp 0.35s ease both;
+    }
+    .guidance-card:nth-child(2) { animation-delay: 0.08s; }
+    .guidance-card:nth-child(3) { animation-delay: 0.16s; }
+    .guidance-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem 1.15rem;
+      background: var(--bg-card-alt);
+      border-bottom: 1px solid var(--border);
+    }
+    .verse-ref {
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .guidance-body { padding: 1rem 1.15rem; }
+    .insight-text {
+      font-size: 0.9rem;
+      line-height: 1.7;
+      color: var(--text);
+      margin-bottom: 0.65rem;
+    }
+    .connection-text {
+      font-size: 0.8rem;
+      line-height: 1.6;
+      color: var(--text-dim);
+      font-style: italic;
+      padding-left: 0.75rem;
+      border-left: 2px solid var(--accent-deep);
+    }
+
+    /* Advice section */
+    .advice-card {
+      background: var(--advice-bg);
+      border: 1px solid rgba(232,175,110,0.18);
+      border-radius: var(--radius);
+      padding: 1.35rem 1.5rem;
+      margin-bottom: 1.25rem;
+      box-shadow: 0 0 30px rgba(232,175,110,0.06);
+      animation: slideUp 0.35s ease both;
+      animation-delay: 0.22s;
+    }
+    .advice-text {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.15rem;
+      line-height: 1.65;
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    /* Practice section */
+    .practice-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.35rem;
+      margin-bottom: 1rem;
+      box-shadow: var(--shadow);
+      animation: slideUp 0.35s ease both;
+      animation-delay: 0.28s;
+    }
+    .practice-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 1rem;
+      color: var(--text);
+      margin-bottom: 0.75rem;
+    }
+    .practice-steps {
+      list-style: none;
+      padding: 0;
+      counter-reset: step;
+    }
+    .practice-steps li {
+      counter-increment: step;
+      font-size: 0.85rem;
+      line-height: 1.7;
+      color: var(--text);
+      padding: 0.5rem 0 0.5rem 2rem;
+      position: relative;
+      border-bottom: 1px solid var(--border);
+    }
+    .practice-steps li:last-child { border-bottom: none; }
+    .practice-steps li::before {
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 0.55rem;
+      width: 20px; height: 20px;
+      background: var(--accent-glow);
+      border: 1px solid rgba(232,175,110,0.25);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.65rem;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    .practice-purpose {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      font-style: italic;
+      margin-top: 0.65rem;
+      padding-top: 0.65rem;
+      border-top: 1px solid var(--border);
+    }
+
+    /* Error */
+    .error-msg {
+      text-align: center;
+      color: #e87070;
+      font-size: 0.9rem;
+      padding: 2rem 0;
+    }
+
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 520px) {
+      .container { padding: 1rem 0.75rem 3rem; }
+      header h1 { font-size: 1.4rem; }
+      .chips { display: none; }
+      .input-actions { justify-content: flex-end; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">🪷</div>
+      <h1>Bhagavad Gita Wisdom</h1>
+      <p>AI-powered guidance from 700 verses across 18 chapters</p>
+    </header>
+
+    <div class="input-area">
+      <textarea id="query-input" placeholder="Share what you're feeling or facing…&#10;e.g. &quot;I feel paralyzed by fear of making the wrong decision&quot;" rows="3"></textarea>
+      <div class="input-actions">
+        <div class="chips">
+          <button class="chip" onclick="fillQuery('I feel anxious about my future career')">Career anxiety</button>
+          <button class="chip" onclick="fillQuery('I am consumed by anger and cannot let it go')">Anger</button>
+          <button class="chip" onclick="fillQuery('I lost someone I love and cannot move on')">Grief</button>
+          <button class="chip" onclick="fillQuery('I feel like giving up on everything')">Hopelessness</button>
+        </div>
+        <button id="submit-btn" onclick="submitQuery()">Seek Guidance →</button>
+      </div>
+    </div>
+
+    <div id="idle-state">
+      <div class="idle-om">ॐ</div>
+      <div class="idle-quote">"Whenever righteousness declines and unrighteousness prevails, I manifest myself — for the protection of the good, I descend age after age."</div>
+    </div>
+
+    <div id="loading-state">
+      <div class="spinner"></div>
+      <div class="loading-dots"><span></span><span></span><span></span></div>
+      <div class="loading-text">Contemplating wisdom…</div>
+    </div>
+
+    <div id="results"></div>
+  </div>
+
+  <script>
+    const API_URL = '/ask';
+    const input = document.getElementById('query-input');
+    const btn = document.getElementById('submit-btn');
+    const idle = document.getElementById('idle-state');
+    const loading = document.getElementById('loading-state');
+    const results = document.getElementById('results');
+
+    // Restore last query from localStorage
+    const saved = localStorage.getItem('gita_last_query');
+    if (saved) input.value = saved;
+
+    function fillQuery(q) {
+      input.value = q;
+      submitQuery();
+    }
+
+    function esc(s) {
+      return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
+    }
+
+    async function submitQuery() {
+      const query = input.value.trim();
+      if (!query) return;
+
+      localStorage.setItem('gita_last_query', query);
+
+      // UI: loading
+      idle.style.display = 'none';
+      results.style.display = 'none';
+      results.innerHTML = '';
+      loading.style.display = 'flex';
+      btn.disabled = true;
+
+      try {
+        const resp = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query })
+        });
+        if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
+        const data = await resp.json();
+        renderResults(data);
+      } catch (err) {
+        loading.style.display = 'none';
+        results.style.display = 'block';
+        results.innerHTML = `<div class="error-msg">Something went wrong. Please try again.<br><small style="color:var(--text-muted)">${esc(err.message)}</small></div>`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function renderResults(data) {
+      loading.style.display = 'none';
+      let html = '';
+
+      // 1. Understanding
+      const u = data.understanding;
+      if (u) {
+        html += `<div class="understanding-card">
+          <div class="section-label">Understanding</div>
+          <div class="understanding-grid">
+            ${u.emotion ? `<div class="understand-item"><span class="understand-label">Emotion</span><span class="understand-value">${esc(u.emotion)}</span></div>` : ''}
+            ${u.situation ? `<div class="understand-item"><span class="understand-label">Situation</span><span class="understand-value">${esc(u.situation)}</span></div>` : ''}
+            ${u.core_struggle ? `<div class="understand-item" style="flex:1;min-width:160px"><span class="understand-label">Core Struggle</span><span class="understand-value">${esc(u.core_struggle)}</span></div>` : ''}
+          </div>
+        </div>`;
+      }
+
+      // 2. Guidance
+      const g = data.guidance;
+      if (Array.isArray(g) && g.length) {
+        html += `<div class="section-label" style="margin-top:0.5rem">Verse Guidance</div>`;
+        g.forEach(item => {
+          html += `<div class="guidance-card">
+            <div class="guidance-header">
+              <span class="verse-ref">Chapter ${esc(String(item.chapter))} · Verse ${esc(String(item.verse))}</span>
+            </div>
+            <div class="guidance-body">
+              ${item.insight ? `<div class="insight-text">${esc(item.insight)}</div>` : ''}
+              ${item.connection ? `<div class="connection-text">${esc(item.connection)}</div>` : ''}
+            </div>
+          </div>`;
+        });
+      }
+
+      // 3. Final Advice
+      if (data.final_advice) {
+        html += `<div class="advice-card">
+          <div class="section-label">Final Advice</div>
+          <div class="advice-text">${esc(data.final_advice)}</div>
+        </div>`;
+      }
+
+      // 4. Practice
+      const p = data.practice;
+      if (p && typeof p === 'object') {
+        html += `<div class="practice-card">
+          <div class="section-label">Daily Practice</div>
+          ${p.title ? `<div class="practice-title">${esc(p.title)}</div>` : ''}
+          ${Array.isArray(p.steps) && p.steps.length ? `<ol class="practice-steps">${p.steps.map(s => `<li>${esc(s)}</li>`).join('')}</ol>` : ''}
+          ${p.purpose ? `<div class="practice-purpose">${esc(p.purpose)}</div>` : ''}
+        </div>`;
+      }
+
+      if (!html) {
+        html = `<div class="error-msg">No guidance could be generated. Please try a more specific question.</div>`;
+      }
+
+      results.innerHTML = html;
+      results.style.display = 'block';
+    }
+
+    // Ctrl/Cmd+Enter to submit
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitQuery();
+    });
+  </script>
+</body>
+</html>
