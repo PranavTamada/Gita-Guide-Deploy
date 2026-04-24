@@ -6,8 +6,6 @@ import { config as loadEnv } from "dotenv";
 import { getTopMatches, getConnectedVerses } from "./retrieval.js";
 import { generatePractice } from "./practiceGenerator.js";
 
-loadEnv();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..");
@@ -91,7 +89,7 @@ function getFallbackInsight(verse, usedInsights) {
     }
     if (candidate) break;
   }
-  
+
   if (!candidate) {
     candidate = "Stay steady and act without fear";
   }
@@ -233,9 +231,9 @@ function computeKnowledgeGraphSignal(verseId, emotion, situation) {
 function enrichVerse(verse) {
   const details = verseDetailsMap.get(verse.id) || {};
   const purportDetails = purportDetailsMap.get(verse.id) || {};
-  
+
   const principles = Array.isArray(details.principles) ? details.principles : [];
-  
+
   // Use purports data if available, else fallback
   const summary = purportDetails.summary || details.summary || "";
   const core_idea = purportDetails.core_idea || details.core_idea || safeTrim(details.translation) || "Steady action with awareness.";
@@ -270,23 +268,23 @@ function selectTopVersesWithKg(hybridVerses, emotion, situation, topK = 3) {
 
 function tryParseJson(text) {
   if (!text) return null;
-  
+
   // Attempt to extract JSON from markdown blocks if present
   const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
   const rawJson = jsonMatch ? jsonMatch[1] : text;
-  
+
   try {
     return JSON.parse(rawJson);
   } catch {
     // Attempt aggressive cleanup if it fails
     try {
-       const start = rawJson.indexOf("{");
-       const end = rawJson.lastIndexOf("}");
-       if (start !== -1 && end !== -1) {
-         return JSON.parse(rawJson.slice(start, end + 1));
-       }
+      const start = rawJson.indexOf("{");
+      const end = rawJson.lastIndexOf("}");
+      if (start !== -1 && end !== -1) {
+        return JSON.parse(rawJson.slice(start, end + 1));
+      }
     } catch {
-       return null;
+      return null;
     }
   }
   return null;
@@ -294,7 +292,7 @@ function tryParseJson(text) {
 
 async function callOllama(prompt) {
   logStage("llama_call_request", { model: OLLAMA_MODEL });
-  
+
   try {
     const res = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
       method: "POST",
@@ -316,7 +314,7 @@ async function callOllama(prompt) {
 
     const data = await res.json();
     const text = safeTrim(data?.response);
-    
+
     if (!text) {
       throw new Error("Empty response from Ollama");
     }
@@ -388,7 +386,7 @@ JSON FORMAT:
 
   // 3) Generate Intelligent Fallback First
   const emotionNoun = emotionMap[understanding.emotion] || understanding.emotion;
-  
+
   const fallbackGuidanceResult = {
     guidance: topVerses.map(v => ({
       chapter: v.chapter,
@@ -406,12 +404,12 @@ JSON FORMAT:
   try {
     const rawLLMOutput = await callOllama(prompt);
     const parsedLLM = tryParseJson(rawLLMOutput);
-    
+
     if (parsedLLM && Array.isArray(parsedLLM.guidance)) {
-       guidanceResult = parsedLLM;
-       usedFallback = false;
+      guidanceResult = parsedLLM;
+      usedFallback = false;
     } else {
-       throw new Error("Invalid JSON structure from LLM");
+      throw new Error("Invalid JSON structure from LLM");
     }
   } catch (err) {
     logStage("llama_fallback_triggered", { reason: err.message });
@@ -419,7 +417,7 @@ JSON FORMAT:
 
   // 5) Practice generation (Agent 5 - deterministic)
   logStage("practice_generation", { mode: "local" });
-  
+
   // Gather all principles and core ideas
   const allPrinciples = topVerses.reduce((acc, v) => acc.concat(v.principles || []), []);
   const allCoreIdeas = topVerses.map(v => v.core_idea).filter(Boolean);
@@ -442,7 +440,7 @@ JSON FORMAT:
   const outputPath = path.join(projectRoot, "outputs", "answers.json");
   // ensure outputs dir exists
   if (!fs.existsSync(path.join(projectRoot, "outputs"))) {
-     fs.mkdirSync(path.join(projectRoot, "outputs"), { recursive: true });
+    fs.mkdirSync(path.join(projectRoot, "outputs"), { recursive: true });
   }
   fs.writeFileSync(outputPath, JSON.stringify(finalOutput, null, 2));
 
