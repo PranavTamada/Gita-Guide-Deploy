@@ -1,8 +1,10 @@
+import fetch from "node-fetch"; // VERY IMPORTANT
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { config as loadEnv } from "dotenv";
 import { getTopMatches, getConnectedVerses } from "./retrieval.js";
+import { generatePractice } from "./practiceGenerator.js";
 
 loadEnv();
 
@@ -10,12 +12,24 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..");
 const versesDataPath = path.join(projectRoot, "data", "verses.json");
+const purportsDataPath = path.join(projectRoot, "data", "purports.json");
+
 const versesData = JSON.parse(fs.readFileSync(versesDataPath, "utf-8"));
 const verseDetailsMap = new Map(
   versesData.map(verse => [`${verse.chapter}-${verse.verse}`, verse])
 );
 
-const API_KEY = process.env.ANTHROPIC_API_KEY;
+let purportsData = [];
+let purportDetailsMap = new Map();
+if (fs.existsSync(purportsDataPath)) {
+  purportsData = JSON.parse(fs.readFileSync(purportsDataPath, "utf-8"));
+  purportDetailsMap = new Map(
+    purportsData.map(p => [`${p.chapter}-${p.verse}`, p])
+  );
+}
+
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
+const OLLAMA_MODEL = "mistral"; // the requested lightweight model
 
 const EMOTIONAL_TERMS = new Set([
   "anxiety", "anxious", "fear", "afraid", "grief", "sad", "anger", "angry", "stress",
@@ -25,129 +39,149 @@ const EMOTIONAL_TERMS = new Set([
 const SITUATIONAL_TERMS = new Set([
   "job", "career", "work", "business", "money", "debt", "family", "marriage",
   "relationship", "health", "exam", "study", "decision", "conflict", "failure",
-  "success", "leadership", "responsibility"
+  "success", "leadership", "responsibility", "loss", "uncertainty"
 ]);
 
-const PHILOSOPHICAL_TERMS = new Set([
-  "dharma", "karma", "soul", "self", "truth", "wisdom", "detachment", "duty",
-  "moksha", "liberation", "ego", "consciousness", "devotion", "nature"
-]);
+const emotionMap = {
+  anxious: "anxiety",
+  angry: "anger",
+  sad: "sadness",
+  confused: "confusion",
+  fear: "fear",
+  seeking: "seeking",
+  grief: "grief"
+};
 
-const FALLBACK_AGENT5_PROMPT = `You are Agent 5, a practical spiritual coach.
-Given the user's query and selected verses, generate a concrete 5-10 minute exercise.
+const adviceTemplates = {
+  anxious: "Take one small action today without worrying about results",
+  confused: "Choose one option and take the first step immediately",
+  angry: "Pause and respond calmly instead of reacting instantly",
+  sad: "Focus on one positive action you can take today"
+};
 
-The exercise must include all three types with step-by-step instructions:
-1) reflection
-2) journaling
-3) action step
+const principleMap = {
+  "detachment": "Focus on effort instead of worrying about results",
+  "control mind": "Control your thoughts instead of reacting to them",
+  "self-knowledge": "Understand your inner self before making decisions",
+  "duty": "Fulfill your responsibilities without attachment to comfort",
+  "devotion": "Dedicate your actions to a higher purpose",
+  "surrender": "Release what you cannot control and trust the process",
+  "discipline": "Master yourself through focused action",
+  "knowledge": "Seek true understanding over temporary feelings",
+  "equanimity": "Remain steady in both success and failure",
+  "action": "Take right action without fear of the outcome",
+  "faith": "Trust the process even amidst uncertainty"
+};
 
-Use each verse's translation, principle, and core_idea.
-Keep it simple, practical, and not abstract.
+function getFallbackInsight(verse, usedInsights) {
+  const principles = verse.principles || [];
+  let candidate = null;
 
-Return only valid JSON in this shape:
-{
-  "practice": {
-    "duration_minutes": 7,
-    "reflection": ["step 1", "step 2"],
-    "journaling": ["step 1", "step 2"],
-    "action_step": ["step 1", "step 2"]
+  for (const p of principles) {
+    if (p && principleMap[p.toLowerCase()]) {
+      candidate = principleMap[p.toLowerCase()];
+      break;
+    }
+    // partial matches
+    for (const [key, value] of Object.entries(principleMap)) {
+      if (p.toLowerCase().includes(key)) {
+        candidate = value;
+        break;
+      }
+    }
+    if (candidate) break;
   }
-}`;
+  
+  if (!candidate) {
+    candidate = "Stay steady and act without fear";
+  }
+
+  // Prevent exact repetition if the user is getting identical insights
+  if (usedInsights.has(candidate)) {
+    const alternatives = [
+      "Focus on your path and keep moving forward",
+      "Release anxiety by anchoring yourself in the present",
+      "Embrace clarity over confusion with steady action"
+    ];
+    candidate = alternatives[usedInsights.size % alternatives.length];
+  }
+
+  usedInsights.add(candidate);
+  return candidate;
+}
+
+// Memory function
+const historyPath = path.join(projectRoot, "outputs", "history.json");
+
+function loadHistory() {
+  if (fs.existsSync(historyPath)) {
+    try {
+      return JSON.parse(fs.readFileSync(historyPath, "utf-8"));
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function saveQuery(query, result) {
+  const history = loadHistory();
+  // We only save the output metadata to keep memory light
+  history.push({ query, timestamp: new Date().toISOString(), result });
+  // Keep last 50 queries to prevent file bloat
+  if (history.length > 50) history.shift();
+  fs.writeFileSync(historyPath, JSON.stringify(history, null, 2));
+}
 
 function logStage(stage, details = {}) {
   console.log("[pipeline]", JSON.stringify({ stage, ...details }));
 }
 
-function safeReadPrompt(relativePath, fallback = "") {
-  const fullPath = path.join(projectRoot, relativePath);
-  if (!fs.existsSync(fullPath)) {
-    return fallback;
-  }
-
-  return fs.readFileSync(fullPath, "utf-8");
+function safeTrim(value) {
+  return (String(value || "")).trim();
 }
 
-function normalize(text) {
-  return String(text || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+function analyzeQuery(query) {
+  const qStr = safeTrim(query).toLowerCase();
+  const terms = qStr.split(/[^a-z0-9]+/);
 
-function toSentence(text) {
-  const cleaned = String(text || "").replace(/\s+/g, " ").trim();
-  if (!cleaned) {
-    return "";
-  }
+  let emotion = "seeking";
+  let situation = "general";
+  let core_struggle = "";
 
-  const sentence = cleaned.split(/[.!?]/)[0].trim();
-  return sentence || cleaned;
-}
-
-function extractCoreIdea(verseRecord) {
-  if (!verseRecord || typeof verseRecord !== "object") {
-    return "Take one clear step with steadiness and awareness.";
-  }
-
-  if (typeof verseRecord.core_idea === "string" && verseRecord.core_idea.trim()) {
-    return verseRecord.core_idea.trim();
-  }
-
-  if (Array.isArray(verseRecord.purports) && verseRecord.purports.length > 0) {
-    const firstPurport = verseRecord.purports.find(item => typeof item === "string" && item.trim());
-    if (firstPurport) {
-      return toSentence(firstPurport);
+  // Phrase matching rules
+  if (qStr.includes("future")) {
+    situation = "uncertainty about the future";
+  } else if (qStr.includes("don't know") || qStr.includes("do not know")) {
+    situation = "decision-making confusion";
+  } else if (qStr.includes("job") || qStr.includes("career")) {
+    situation = "career decision";
+  } else {
+    // Fallback to word matching for situation
+    for (const term of terms) {
+      if (term && SITUATIONAL_TERMS.has(term)) {
+        situation = term;
+        break;
+      }
     }
   }
 
-  if (typeof verseRecord.purport === "string" && verseRecord.purport.trim()) {
-    return toSentence(verseRecord.purport);
-  }
-
-  if (Array.isArray(verseRecord.principles) && verseRecord.principles.length > 0) {
-    const firstPrinciple = verseRecord.principles.find(item => typeof item === "string" && item.trim());
-    if (firstPrinciple) {
-      return firstPrinciple.trim();
-    }
-  }
-
-  return toSentence(verseRecord.translation) || "Act with clarity in one practical task today.";
-}
-
-function enrichVerseForPractice(verse) {
-  const details = verseDetailsMap.get(verse.id) || {};
-  const principles = Array.isArray(details.principles) ? details.principles : [];
-
-  return {
-    ...verse,
-    principle: principles[0] || "Steady action with awareness.",
-    principles,
-    core_idea: extractCoreIdea(details)
-  };
-}
-
-function classifyQuery(query) {
-  const terms = normalize(query)
-    .split(" ")
-    .filter(Boolean);
-
-  let emotional = 0;
-  let situational = 0;
-  let philosophical = 0;
-
+  // Emotion word matching
   for (const term of terms) {
-    if (EMOTIONAL_TERMS.has(term)) emotional += 1;
-    if (SITUATIONAL_TERMS.has(term)) situational += 1;
-    if (PHILOSOPHICAL_TERMS.has(term)) philosophical += 1;
+    if (term && EMOTIONAL_TERMS.has(term)) {
+      emotion = term;
+      break;
+    }
   }
 
-  const scores = { emotional, situational, philosophical };
-  const type = Object.entries(scores).sort((a, b) => b[1] - a[1])[0][1] > 0
-    ? Object.entries(scores).sort((a, b) => b[1] - a[1])[0][0]
-    : "philosophical";
+  // Generate natural core struggle
+  if (situation === "uncertainty about the future" || situation === "decision-making confusion" || situation === "career decision") {
+    core_struggle = `fear of making the wrong decision about the ${situation === "career decision" ? "career" : "future"}`;
+  } else {
+    core_struggle = `${emotion} regarding ${situation}`;
+  }
 
-  return { type, scores, terms };
+  return { emotion, situation, core_struggle };
 }
 
 function clamp01(value) {
@@ -161,7 +195,7 @@ function normalizeKgWeight(weight) {
   return clamp01((Number(weight) || 0) / 5);
 }
 
-function computeKnowledgeGraphSignal(verseId, queryType) {
+function computeKnowledgeGraphSignal(verseId, emotion, situation) {
   const neighbors = getConnectedVerses(verseId, 1).slice(0, 5);
   if (neighbors.length === 0) {
     return { kg_score: 0, neighbors_sample: [] };
@@ -173,9 +207,10 @@ function computeKnowledgeGraphSignal(verseId, queryType) {
     const situationalSignal = (connection.shared_life_situations || []).length;
     const philosophicalSignal = (connection.shared_principles || []).length;
 
+    // A simple heuristic based on the presence of emotion/situation vs philosophical
     let typeSignal = philosophicalSignal;
-    if (queryType === "emotional") typeSignal = emotionalSignal;
-    if (queryType === "situational") typeSignal = situationalSignal;
+    if (emotion !== "seeking") typeSignal += emotionalSignal;
+    if (situation !== "general") typeSignal += situationalSignal;
 
     const edgeStrength = normalizeKgWeight(connection.weight || 0);
     const typeBoost = clamp01(typeSignal / 3);
@@ -195,12 +230,30 @@ function computeKnowledgeGraphSignal(verseId, queryType) {
   };
 }
 
-function selectTopVersesWithKg(hybridVerses, queryType, topK = 3) {
+function enrichVerse(verse) {
+  const details = verseDetailsMap.get(verse.id) || {};
+  const purportDetails = purportDetailsMap.get(verse.id) || {};
+  
+  const principles = Array.isArray(details.principles) ? details.principles : [];
+  
+  // Use purports data if available, else fallback
+  const summary = purportDetails.summary || details.summary || "";
+  const core_idea = purportDetails.core_idea || details.core_idea || safeTrim(details.translation) || "Steady action with awareness.";
+
+  return {
+    ...verse,
+    principles,
+    summary,
+    core_idea
+  };
+}
+
+function selectTopVersesWithKg(hybridVerses, emotion, situation, topK = 3) {
   const rescored = hybridVerses.map(verse => {
     const baseScore = clamp01(verse.final_score || 0);
-    const kgSignal = computeKnowledgeGraphSignal(verse.id, queryType);
+    const kgSignal = computeKnowledgeGraphSignal(verse.id, emotion, situation);
     const finalHybridScore = clamp01((baseScore * 0.85) + (kgSignal.kg_score * 0.15));
-    const enrichedVerse = enrichVerseForPractice(verse);
+    const enrichedVerse = enrichVerse(verse);
 
     return {
       ...enrichedVerse,
@@ -215,231 +268,201 @@ function selectTopVersesWithKg(hybridVerses, queryType, topK = 3) {
     .slice(0, topK);
 }
 
-function extractTextFromClaudeResponse(data) {
-  if (!data || !Array.isArray(data.content)) {
-    return "";
-  }
-
-  const parts = data.content
-    .filter(item => item && item.type === "text")
-    .map(item => item.text || "")
-    .join("\n")
-    .trim();
-
-  return parts;
-}
-
 function tryParseJson(text) {
+  if (!text) return null;
+  
+  // Attempt to extract JSON from markdown blocks if present
+  const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  const rawJson = jsonMatch ? jsonMatch[1] : text;
+  
   try {
-    return JSON.parse(text);
+    return JSON.parse(rawJson);
   } catch {
-    return null;
+    // Attempt aggressive cleanup if it fails
+    try {
+       const start = rawJson.indexOf("{");
+       const end = rawJson.lastIndexOf("}");
+       if (start !== -1 && end !== -1) {
+         return JSON.parse(rawJson.slice(start, end + 1));
+       }
+    } catch {
+       return null;
+    }
   }
+  return null;
 }
 
-async function callClaude(systemPrompt, userContent, stageName) {
-  if (!API_KEY) {
-    throw new Error("Missing ANTHROPIC_API_KEY in environment");
-  }
+async function callOllama(prompt) {
+  logStage("llama_call_request", { model: OLLAMA_MODEL });
+  
+  try {
+    const res = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: OLLAMA_MODEL,
+        prompt: prompt,
+        stream: false,
+        format: "json" // try to enforce JSON if supported
+      }),
+      timeout: 30000 // 30s timeout
+    });
 
-  logStage(`${stageName}_request`, { model: "claude-3-haiku-20240307" });
-
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": API_KEY,
-      "anthropic-version": "2023-06-01"
-    },
-    body: JSON.stringify({
-      model: "claude-3-haiku-20240307",
-      max_tokens: 1000,
-      system: systemPrompt,
-      messages: [
-        {
-          role: "user",
-          content: userContent
-        }
-      ]
-    })
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Claude API failed (${response.status}): ${body}`);
-  }
-
-  const data = await response.json();
-  const text = extractTextFromClaudeResponse(data);
-
-  logStage(`${stageName}_response`, { characters: text.length });
-
-  return text;
-}
-
-function buildAgent4UserMessage(query, queryClassification, verses) {
-  return [
-    `User Query:\n${query}`,
-    `\nQuery Classification:\n${JSON.stringify(queryClassification, null, 2)}`,
-    `\nSelected Verses (top 3):\n${JSON.stringify(verses, null, 2)}`,
-    "\nReturn only valid JSON with keys: understanding, guidance"
-  ].join("\n");
-}
-
-function buildAgent5UserMessage(query, understanding, guidance, verses) {
-  return [
-    `User Query:\n${query}`,
-    `\nUnderstanding:\n${understanding}`,
-    `\nGuidance:\n${guidance}`,
-    `\nVerses (with principle and core_idea):\n${JSON.stringify(verses, null, 2)}`,
-    "\nGenerate a 5-10 minute exercise.",
-    "It must contain reflection, journaling, and action step.",
-    "Provide step-by-step instructions only.",
-    "Keep it simple and practical.",
-    "\nReturn only valid JSON in this shape:",
-    "{\"practice\":{\"duration_minutes\":7,\"reflection\":[\"step 1\"],\"journaling\":[\"step 1\"],\"action_step\":[\"step 1\"]}}"
-  ].join("\n");
-}
-
-function normalizeAgent4Output(rawText) {
-  const parsed = tryParseJson(rawText);
-  if (parsed && (parsed.understanding || parsed.guidance)) {
-    return {
-      understanding: String(parsed.understanding || "").trim(),
-      guidance: String(parsed.guidance || "").trim()
-    };
-  }
-
-  return {
-    understanding: "I hear your concern and the deeper need for clarity and steadiness.",
-    guidance: rawText.trim() || "Use the selected verses as anchors for reflective action."
-  };
-}
-
-function normalizeAgent5Output(rawText) {
-  const parsed = tryParseJson(rawText);
-  if (parsed && parsed.practice) {
-    if (typeof parsed.practice === "object") {
-      const durationRaw = Number(parsed.practice.duration_minutes);
-      const duration = Number.isFinite(durationRaw)
-        ? Math.max(5, Math.min(10, durationRaw))
-        : 7;
-
-      const reflection = Array.isArray(parsed.practice.reflection)
-        ? parsed.practice.reflection.filter(Boolean)
-        : [];
-      const journaling = Array.isArray(parsed.practice.journaling)
-        ? parsed.practice.journaling.filter(Boolean)
-        : [];
-      const actionStep = Array.isArray(parsed.practice.action_step)
-        ? parsed.practice.action_step.filter(Boolean)
-        : [];
-
-      const stepsBlock = (label, steps) => {
-        if (steps.length === 0) {
-          return `${label}:\n1. Do one small, clear step related to this section.`;
-        }
-
-        return `${label}:\n${steps.map((step, i) => `${i + 1}. ${String(step).trim()}`).join("\n")}`;
-      };
-
-      return {
-        practice: [
-          `${duration}-minute exercise`,
-          stepsBlock("Reflection", reflection),
-          stepsBlock("Journaling", journaling),
-          stepsBlock("Action Step", actionStep)
-        ].join("\n\n")
-      };
+    if (!res.ok) {
+      throw new Error(`Ollama API failed (${res.status}): ${await res.text()}`);
     }
 
-    return {
-      practice: String(parsed.practice).trim()
-    };
-  }
+    const data = await res.json();
+    const text = safeTrim(data?.response);
+    
+    if (!text) {
+      throw new Error("Empty response from Ollama");
+    }
 
-  return {
-    practice: rawText.trim() || [
-      "7-minute exercise",
-      "Reflection:\n1. Read one selected verse once.\n2. Ask: what one message do I need right now?",
-      "Journaling:\n1. Write your current challenge in one sentence.\n2. Write one principle from the verse that applies today.",
-      "Action Step:\n1. Choose one action that takes under 10 minutes.\n2. Complete it before the day ends."
-    ].join("\n\n")
-  };
+    logStage("llama_call_response", { characters: text.length });
+    return text;
+  } catch (err) {
+    console.error("❌ Ollama Call Error:", err.message);
+    throw err; // Propagate error to trigger fallback
+  }
 }
 
 export async function runIntelligentPipeline(query) {
-  if (!query || !String(query).trim()) {
+  query = safeTrim(query);
+  if (!query) {
     throw new Error("Query is required");
   }
 
-  logStage("start", { query_length: String(query).trim().length });
+  logStage("start", { query });
 
-  // 1) Classify query
-  const queryClassification = classifyQuery(query);
-  logStage("classify_query", queryClassification);
+  // 1) Analyze query (Rule-based)
+  const understanding = analyzeQuery(query);
+  logStage("analyze_query", understanding);
 
-  // 2) Hybrid retrieval (vector + metadata + KG)
+  // 2) Hybrid retrieval
   const hybridCandidates = await getTopMatches(query, 9);
-  logStage("hybrid_retrieval", { candidate_count: hybridCandidates.length });
-
-  const topVerses = selectTopVersesWithKg(hybridCandidates, queryClassification.type, 3);
-  logStage("select_top_verses", {
-    selected: topVerses.map(v => ({
-      id: v.id,
-      final_hybrid_score: v.final_hybrid_score,
-      base_score: v.final_score,
-      kg_score: v.kg_score
-    }))
+  const topVerses = selectTopVersesWithKg(hybridCandidates, understanding.emotion, understanding.situation, 3);
+  logStage("retrieval", {
+    selected: topVerses.map(v => ({ id: v.id, score: v.final_hybrid_score }))
   });
 
-  // 3) Agent 4: reasoning
-  const agent4Prompt = safeReadPrompt("prompts/agent4.txt");
-  const agent4UserContent = buildAgent4UserMessage(query, queryClassification, topVerses);
-  const reasoningRaw = await callClaude(agent4Prompt, agent4UserContent, "agent4_reasoning");
-  const reasoning = normalizeAgent4Output(reasoningRaw);
+  // 3) Call Ollama for guidance
+  const prompt = `
+You are a Bhagavad Gita assistant that gives clear, practical guidance.
 
-  // 4) Agent 5: practice
-  const agent5Prompt = safeReadPrompt("prompts/agent5.txt", FALLBACK_AGENT5_PROMPT);
-  const agent5UserContent = buildAgent5UserMessage(
-    query,
-    reasoning.understanding,
-    reasoning.guidance,
-    topVerses
-  );
-  const practiceRaw = await callClaude(agent5Prompt, agent5UserContent, "agent5_practice");
-  const practiceResult = normalizeAgent5Output(practiceRaw);
+User Query: ${query}
+Emotion: ${understanding.emotion}
+Situation: ${understanding.situation}
 
-  // 5) Final response
-  const finalResponse = {
-    understanding: reasoning.understanding,
-    guidance: reasoning.guidance,
-    practice: practiceResult.practice
+Verses:
+${topVerses.map(v => `${v.chapter}:${v.verse} - ${v.translation}`).join("\n")}
+
+Task:
+- For EACH verse:
+  - Give 1 short insight (max 15 words)
+  - Explain how it relates to the user's situation (1 sentence)
+
+- Then give 1 final practical advice (max 20 words)
+
+STRICT RULES:
+- Output ONLY valid JSON
+- No explanations outside JSON
+- No repetition
+- Keep language simple and human
+- Do NOT copy full verse text
+
+JSON FORMAT:
+{
+  "guidance": [
+    {
+      "chapter": number,
+      "verse": number,
+      "insight": "short insight",
+      "connection": "specific to user situation"
+    }
+  ],
+  "final_advice": "short actionable advice"
+}`;
+
+  // 3) Generate Intelligent Fallback First
+  const emotionNoun = emotionMap[understanding.emotion] || understanding.emotion;
+  
+  const fallbackGuidanceResult = {
+    guidance: topVerses.map(v => ({
+      chapter: v.chapter,
+      verse: v.verse,
+      insight: getFallbackInsight(v),
+      connection: `This helps reduce ${emotionNoun} caused by overthinking ${understanding.situation}.`
+    })),
+    final_advice: adviceTemplates[understanding.emotion] || "Take one calm step forward"
   };
 
-  const outputPayload = {
-    query,
-    query_classification: queryClassification,
-    selected_verses: topVerses,
-    result: finalResponse
+  let guidanceResult = fallbackGuidanceResult;
+  let usedFallback = true;
+
+  // 4) Call LLM as an Optional Enhancer
+  try {
+    const rawLLMOutput = await callOllama(prompt);
+    const parsedLLM = tryParseJson(rawLLMOutput);
+    
+    if (parsedLLM && Array.isArray(parsedLLM.guidance)) {
+       guidanceResult = parsedLLM;
+       usedFallback = false;
+    } else {
+       throw new Error("Invalid JSON structure from LLM");
+    }
+  } catch (err) {
+    logStage("llama_fallback_triggered", { reason: err.message });
+  }
+
+  // 5) Practice generation (Agent 5 - deterministic)
+  logStage("practice_generation", { mode: "local" });
+  
+  // Gather all principles and core ideas
+  const allPrinciples = topVerses.reduce((acc, v) => acc.concat(v.principles || []), []);
+  const allCoreIdeas = topVerses.map(v => v.core_idea).filter(Boolean);
+
+  const practice = generatePractice({
+    emotion: understanding.emotion,
+    situation: understanding.situation,
+    principles: allPrinciples,
+    core_idea: allCoreIdeas[0] // just pass the first main idea
+  });
+
+  // 5) Final Assembly
+  const finalOutput = {
+    understanding,
+    guidance: guidanceResult.guidance,
+    final_advice: guidanceResult.final_advice,
+    practice
   };
 
   const outputPath = path.join(projectRoot, "outputs", "answers.json");
-  fs.writeFileSync(outputPath, JSON.stringify(outputPayload, null, 2));
+  // ensure outputs dir exists
+  if (!fs.existsSync(path.join(projectRoot, "outputs"))) {
+     fs.mkdirSync(path.join(projectRoot, "outputs"), { recursive: true });
+  }
+  fs.writeFileSync(outputPath, JSON.stringify(finalOutput, null, 2));
 
-  logStage("complete", { output: "outputs/answers.json" });
-  return finalResponse;
+  // Save to memory history
+  saveQuery(query, finalOutput);
+
+  logStage("final_output", { output: "outputs/answers.json", used_fallback: usedFallback });
+  return finalOutput;
 }
 
 async function runFromCli() {
-  const cliQuery = process.argv.slice(2).join(" ").trim();
-  const query = cliQuery || "I feel anxious about my future and don't know what to do";
+  const cliQuery = process.argv.slice(2).join(" ");
+  const query = safeTrim(cliQuery) || "I feel anxious about my future and don't know what to do";
 
   try {
     const result = await runIntelligentPipeline(query);
-    console.log("[pipeline] final_result", JSON.stringify(result, null, 2));
+    console.log("\n[Pipeline Complete] Output:");
+    console.log(JSON.stringify(result, null, 2));
   } catch (error) {
-    console.error("[pipeline] error", error.message);
+    console.error("[pipeline] fatal error", error.message);
     process.exit(1);
   }
 }
