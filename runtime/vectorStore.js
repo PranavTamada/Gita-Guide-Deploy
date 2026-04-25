@@ -259,9 +259,10 @@ class VectorStore {
         const idx = labels[i];
         if (idx >= 0 && idx < this.metadata.length) {
           const metadata = this.metadata[idx];
-          // Convert L2 distance to similarity score (0-1)
-          // For L2 distance: similarity ≈ 1 / (1 + distance)
-          const similarity = 1 / (1 + distances[i]);
+          // Convert L2 squared distance to cosine similarity.
+          // For unit-normalized vectors: L2² = 2(1 - cosine), so cosine = 1 - d²/2.
+          // Clamp to [0, 1] to guard against tiny floating-point overshoots.
+          const similarity = Math.max(0, Math.min(1, 1 - distances[i] / 2));
 
           results.push({
             ...metadata,

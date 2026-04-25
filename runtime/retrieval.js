@@ -1,7 +1,11 @@
 import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import { vectorStore } from "./vectorStore.js";
 
-const data = JSON.parse(fs.readFileSync("data/verses.json", "utf-8"));
+const versesDataPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '../data/verses.json')
+
+const data = JSON.parse(fs.readFileSync(versesDataPath, "utf-8"));
 const verseMap = new Map(
   data.map(verse => [`${verse.chapter}-${verse.verse}`, verse])
 );
@@ -469,9 +473,17 @@ function diversifyResults(results, topK = 3) {
     return results.slice(0, topK);
   }
 
+  // For large candidate pools (e.g. topK=9 for KG re-ranking), skip diversity
+  // filtering so the KG stage receives the highest-scored candidates unfiltered.
+  // Diversity is only meaningful for the final small set shown to the user.
+  if (topK >= 6) {
+    return results.slice(0, topK);
+  }
+
   const diverse = [];
   const chaptersUsed = new Set();
   const emotionsUsed = new Set();
+  const seenIds = new Set();
 
   // First pass: prioritize variety in chapters and emotions
   for (const result of results) {
@@ -484,6 +496,7 @@ function diversifyResults(results, topK = 3) {
 
     if (hasNewChapter || hasNewEmotion || diverse.length < 1) {
       diverse.push(result);
+      seenIds.add(result.id);
       chaptersUsed.add(result.chapter);
       if (result.emotion_tags.length > 0) {
         emotionsUsed.add(result.emotion_tags[0]);
@@ -495,8 +508,9 @@ function diversifyResults(results, topK = 3) {
   if (diverse.length < topK) {
     for (const result of results) {
       if (diverse.length >= topK) break;
-      if (!diverse.find(r => r.id === result.id)) {
+      if (!seenIds.has(result.id)) {
         diverse.push(result);
+        seenIds.add(result.id);
       }
     }
   }
@@ -511,10 +525,10 @@ function diversifyResults(results, topK = 3) {
  * @param {number} topK   - Number of results to return
  * @param {object} [intentBias] - Optional field-level weight bias from intentAnalyzer.
  *   Shape: { vectorWeight, emotionWeight, lifeSituationWeight, keywordsWeight }
- *   When provided, bypasses the internal classifyQuery() heuristic and applies
- *   intent-driven FAISS field weighting directly.
+ * @param {object} [intentLabels] - Optional { emotion, situation } from intentAnalyzer
+ *   to inject canonical labels as extra metadata scoring terms.
  */
-export async function getTopMatches(query, topK = 3, intentBias = null) {
+export async function getTopMatches(query, topK = 3, intentBias = null, intentLabels = null) {
   try {
     // Initialize vector store if needed
     if (!vectorStore.isBuilt) {
@@ -522,11 +536,21 @@ export async function getTopMatches(query, topK = 3, intentBias = null) {
         vectorStore.loadIndex();
       } catch {
         // Index not available, fall back to metadata-only search
-        return getMetadataOnlySearch(query, topK, intentBias);
+        return getMetadataOnlySearch(query, topK, intentBias, intentLabels);
       }
     }
 
-    const queryTerms = parseQuery(query);
+    // Build query terms: raw user words PLUS canonical intent labels.
+    // This ensures "anxious" triggers "anxiety" in verse emotion_tags, and
+    // "I feel lost" triggers "search for meaning" in verse life_situations.
+    const rawTerms = parseQuery(query);
+    const labelTerms = intentLabels
+      ? [
+          ...(intentLabels.emotion ? parseQuery(intentLabels.emotion) : []),
+          ...(intentLabels.situation ? parseQuery(intentLabels.situation) : [])
+        ]
+      : [];
+    const queryTerms = [...new Set([...rawTerms, ...labelTerms])];
 
     // Determine adaptive weights: intent bias takes precedence over heuristics
     let adaptiveWeights;
@@ -558,7 +582,7 @@ export async function getTopMatches(query, topK = 3, intentBias = null) {
       vectorResults = await vectorStore.search(query, topK * 3);
     } catch (error) {
       console.error("Vector search error:", error);
-      return getMetadataOnlySearch(query, topK, intentBias);
+      return getMetadataOnlySearch(query, topK, intentBias, intentLabels);
     }
 
     // 2. Create a map of verse IDs to vector scores
@@ -603,29 +627,42 @@ export async function getTopMatches(query, topK = 3, intentBias = null) {
       };
     });
 
-    // 4. Filter and sort results
-    const filteredResults = hybridResults
-      .filter(result => result.final_score > 0)
-      .sort((a, b) => b.final_score - a.final_score);
+    // 4. Sort — do NOT filter to > 0: when the vector store IS available, vector
+    // scores alone can be nonzero even if metadata scores are 0.
+    const sortedResults = hybridResults.sort((a, b) => b.final_score - a.final_score);
+    const positiveResults = sortedResults.filter(r => r.final_score > 0);
+    // Guarantee at least topK candidates for the KG re-ranking stage
+    const resultPool = positiveResults.length >= topK ? positiveResults : sortedResults;
 
     // 5. Remove duplicates
-    const deduplicated = deduplicateResults(filteredResults);
+    const deduplicated = deduplicateResults(resultPool);
 
-    // 6. Diversify results
+    // 6. Diversify results (passthrough for topK >= 6)
     const diverse = diversifyResults(deduplicated, topK);
 
     return diverse;
   } catch (error) {
     console.error("Hybrid retrieval error:", error);
-    return getMetadataOnlySearch(query, topK, intentBias);
+    return getMetadataOnlySearch(query, topK, intentBias, intentLabels);
   }
 }
 
 /**
  * Fallback: Metadata-only search (when vector store not available)
  */
-function getMetadataOnlySearch(query, topK = 3, intentBias = null) {
-  const queryTerms = parseQuery(query);
+function getMetadataOnlySearch(query, topK = 3, intentBias = null, intentLabels = null) {
+  const rawQueryTerms = parseQuery(query);
+
+  // Inject canonical intent labels as extra scoring terms so that emotion/situation
+  // names from intentAnalyzer (e.g. "anxiety", "grief from loss") directly match
+  // verse metadata even when the user wrote different words.
+  const labelTerms = intentLabels
+    ? [
+        ...(intentLabels.emotion ? parseQuery(intentLabels.emotion) : []),
+        ...(intentLabels.situation ? parseQuery(intentLabels.situation) : [])
+      ]
+    : [];
+  const queryTerms = [...new Set([...rawQueryTerms, ...labelTerms])];
 
   let adaptiveWeights;
   let queryType;
@@ -671,11 +708,13 @@ function getMetadataOnlySearch(query, topK = 3, intentBias = null) {
     };
   });
 
-  const filtered = results
-    .filter(result => result.final_score > 0)
-    .sort((a, b) => b.final_score - a.final_score);
+  const sorted = results.sort((a, b) => b.final_score - a.final_score);
 
-  const deduplicated = deduplicateResults(filtered);
+  // Filter to scored results; if none scored, fall back to the top-scored regardless
+  const filtered = sorted.filter(result => result.final_score > 0);
+  const pool = filtered.length >= topK ? filtered : sorted; // guaranteed non-empty
+
+  const deduplicated = deduplicateResults(pool);
   return diversifyResults(deduplicated, topK);
 }
 

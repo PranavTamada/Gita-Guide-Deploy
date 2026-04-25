@@ -46,12 +46,23 @@ const emotionMap = {
   peace: "peace",
   hope: "hope"
 };
-
 const adviceTemplates = {
-  anxious: "Take one small action today without worrying about results",
-  confused: "Choose one option and take the first step immediately",
-  angry: "Pause and respond calmly instead of reacting instantly",
-  sad: "Focus on one positive action you can take today"
+  anxiety:     "Take one small action today without worrying about results",
+  fear:        "Name what you fear, then take one small action toward it",
+  anger:       "Pause and respond calmly instead of reacting instantly",
+  grief:       "Allow yourself to feel the loss, then do one kind thing for yourself",
+  depression:  "Pick the smallest possible task and complete it — momentum starts there",
+  envy:        "Redirect your energy inward: list one strength that is uniquely yours",
+  greed:       "Identify what you already have that is enough, and act from that place",
+  pride:       "Seek one honest piece of feedback today and sit with it",
+  compassion:  "Channel your care into one concrete act of service today",
+  peace:       "Protect your stillness by removing one unnecessary distraction today",
+  hope:        "Take one step today that your future self will thank you for",
+  clarity:     "Write down your clearest insight and act on it within the hour",
+  understanding: "Choose one option and take the first step immediately",
+  realization: "Anchor this realization with one concrete change in your daily routine",
+  seeking:     "Ask yourself what you are truly looking for, then take one directed step",
+  neutral:     "Take one calm step forward"
 };
 
 const insightVariants = {
@@ -114,7 +125,7 @@ const insightVariants = {
 
 function getFallbackInsight(verse, index) {
   // Verse context differentiation
-  const chapter = parseInt(verse.chapter || (verse.id || "0").split('-')[0], 10);
+  const chapter = Number(verse.chapter) || parseInt(String(verse.id || "0").split("-")[0], 10);
   
   if (chapter === 2) {
     const options = insightVariants["action"];
@@ -174,11 +185,22 @@ function loadHistory() {
 
 function saveQuery(query, result) {
   const history = loadHistory();
-  // We only save the output metadata to keep memory light
-  history.push({ query, timestamp: new Date().toISOString(), result });
+  // Save only lightweight metadata — NOT the full result — to keep the file small
+  history.push({
+    query,
+    timestamp: new Date().toISOString(),
+    emotion: result.understanding?.emotion,
+    situation: result.understanding?.situation,
+    intent_type: result.understanding?.intent_type,
+    verse_ids: (result.guidance || []).map(g => `${g.chapter}:${g.verse}`)
+  });
   // Keep last 50 queries to prevent file bloat
   if (history.length > 50) history.shift();
-  fs.writeFileSync(historyPath, JSON.stringify(history, null, 2));
+  try {
+    fs.writeFileSync(historyPath, JSON.stringify(history, null, 2));
+  } catch (writeErr) {
+    console.warn("[pipeline] Could not save history:", writeErr.message);
+  }
 }
 
 function logStage(stage, details = {}) {
@@ -189,11 +211,6 @@ function safeTrim(value) {
   return (String(value || "")).trim();
 }
 
-// analyzeQuery is replaced by analyzeIntent (imported from intentAnalyzer.js).
-// Kept as a thin shim so any legacy internal references remain valid.
-function analyzeQuery(query) {
-  return analyzeIntent(query);
-}
 
 function clamp01(value) {
   const num = Number(value) || 0;
@@ -306,6 +323,9 @@ function tryParseJson(text) {
 async function callOllama(prompt) {
   logStage("llama_call_request", { model: OLLAMA_MODEL });
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
   try {
     const res = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
       method: "POST",
@@ -318,8 +338,10 @@ async function callOllama(prompt) {
         stream: false,
         format: "json" // try to enforce JSON if supported
       }),
-      timeout: 30000 // 30s timeout
+      signal: controller.signal
     });
+
+    clearTimeout(timeoutId);
 
     if (!res.ok) {
       throw new Error(`Ollama API failed (${res.status}): ${await res.text()}`);
@@ -335,7 +357,9 @@ async function callOllama(prompt) {
     logStage("llama_call_response", { characters: text.length });
     return text;
   } catch (err) {
-    console.error("❌ Ollama Call Error:", err.message);
+    clearTimeout(timeoutId);
+    const reason = err.name === "AbortError" ? "30s timeout exceeded" : err.message;
+    console.error("❌ Ollama Call Error:", reason);
     throw err; // Propagate error to trigger fallback
   }
 }
@@ -357,8 +381,10 @@ export async function runIntelligentPipeline(query) {
     intent_type: understanding.intent_type
   });
 
-  // 2) Hybrid retrieval — pass field-level FAISS bias from intent
-  const hybridCandidates = await getTopMatches(query, 9, understanding.search_bias);
+  // 2) Hybrid retrieval — pass field-level FAISS bias AND intent labels so
+  // canonical emotion/situation names score directly against verse metadata.
+  const intentLabels = { emotion: understanding.emotion, situation: understanding.situation };
+  const hybridCandidates = await getTopMatches(query, 9, understanding.search_bias, intentLabels);
   const topVerses = selectTopVersesWithKg(hybridCandidates, understanding.emotion, understanding.situation, 3);
   logStage("retrieval", {
     selected: topVerses.map(v => ({ id: v.id, score: v.final_hybrid_score }))
@@ -430,11 +456,28 @@ JSON FORMAT:
     const rawLLMOutput = await callOllama(prompt);
     const parsedLLM = tryParseJson(rawLLMOutput);
 
-    if (parsedLLM && Array.isArray(parsedLLM.guidance)) {
+    // Build a Set of valid verse IDs that were actually sent to the LLM
+    const validVerseIds = new Set(topVerses.map(v => `${v.chapter}-${v.verse}`));
+
+    const isValidGuidance =
+      parsedLLM &&
+      Array.isArray(parsedLLM.guidance) &&
+      parsedLLM.guidance.length > 0 &&
+      typeof parsedLLM.final_advice === "string" &&
+      parsedLLM.guidance.every(
+        g =>
+          typeof g.chapter === "number" &&
+          typeof g.verse === "number" &&
+          typeof g.insight === "string" && g.insight.trim() &&
+          typeof g.connection === "string" && g.connection.trim() &&
+          validVerseIds.has(`${g.chapter}-${g.verse}`)
+      );
+
+    if (isValidGuidance) {
       guidanceResult = parsedLLM;
       usedFallback = false;
     } else {
-      throw new Error("Invalid JSON structure from LLM");
+      throw new Error("Invalid or incomplete JSON structure from LLM");
     }
   } catch (err) {
     logStage("llama_fallback_triggered", { reason: err.message });
@@ -450,6 +493,7 @@ JSON FORMAT:
   const practice = generatePractice({
     emotion: understanding.emotion,
     situation: understanding.situation,
+    core_struggle: understanding.core_struggle,
     principles: allPrinciples,
     core_idea: allCoreIdeas[0] // just pass the first main idea
   });

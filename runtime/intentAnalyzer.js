@@ -546,7 +546,7 @@ function synthesizeCoreStruggle(emotion, situation, intentType) {
     "grief from loss": "following the loss of a loved one",
     "conflict with loved ones": "in a significant personal relationship",
     "career crossroads": "regarding career and professional direction",
-    "decision making under pressure": "when faced with an important life decision",
+    "decision making under pressure": "when forced to make a difficult choice under pressure",
     "anxiety about future": "about what the future holds",
     "existential crisis": "about the meaning and purpose of existence",
     "inner conflict": "arising from internal contradictions",
@@ -565,8 +565,7 @@ function synthesizeCoreStruggle(emotion, situation, intentType) {
     "overcoming ego": "rooted in ego and pride",
     "anger issues": "manifesting as difficulty controlling anger",
     "struggling with temptation": "in resisting destructive desires",
-    "lack of clarity": "due to confusion and lack of direction",
-    "decision making under pressure": "when forced to make difficult choices"
+    "lack of clarity": "due to confusion and lack of direction"
   };
 
   const emotionStr = emotionDescriptors[emotion] || `feelings of ${emotion}`;
@@ -656,16 +655,18 @@ export function analyzeIntent(query) {
     searchBias.vectorWeight = Math.max(searchBias.vectorWeight - boost, 0.15);
   }
 
-  // Normalize to ensure weights sum to ~1.0
-  const sum = searchBias.vectorWeight + searchBias.emotionWeight +
-              searchBias.lifeSituationWeight + searchBias.keywordsWeight;
-  if (sum !== 1.0) {
-    const factor = 1.0 / sum;
-    searchBias.vectorWeight = Math.round(searchBias.vectorWeight * factor * 100) / 100;
-    searchBias.emotionWeight = Math.round(searchBias.emotionWeight * factor * 100) / 100;
-    searchBias.lifeSituationWeight = Math.round(searchBias.lifeSituationWeight * factor * 100) / 100;
-    searchBias.keywordsWeight = Math.round(searchBias.keywordsWeight * factor * 100) / 100;
-  }
+  // Always normalize unconditionally after all boosts — avoids float equality trap
+  // and ensures any rounding below operates on a clean ratio.
+  const _sum = searchBias.vectorWeight + searchBias.emotionWeight +
+               searchBias.lifeSituationWeight + searchBias.keywordsWeight;
+  const _factor = 1.0 / _sum;
+  searchBias.vectorWeight        = Math.round(searchBias.vectorWeight        * _factor * 1000) / 1000;
+  searchBias.emotionWeight       = Math.round(searchBias.emotionWeight       * _factor * 1000) / 1000;
+  searchBias.lifeSituationWeight = Math.round(searchBias.lifeSituationWeight * _factor * 1000) / 1000;
+  // Derive keywords from remainder to guarantee exact sum of 1.000
+  searchBias.keywordsWeight = Math.round(
+    (1.0 - searchBias.vectorWeight - searchBias.emotionWeight - searchBias.lifeSituationWeight) * 1000
+  ) / 1000;
 
   console.log("[intentAnalyzer]", JSON.stringify({
     emotion,
