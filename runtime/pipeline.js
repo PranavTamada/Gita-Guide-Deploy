@@ -28,7 +28,10 @@ if (fs.existsSync(purportsDataPath)) {
 }
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
-const OLLAMA_MODEL = "tinyllama"; // the requested lightweight model
+const OLLAMA_MODEL    = process.env.OLLAMA_MODEL    || "tinyllama";
+const OLLAMA_TIMEOUT  = parseInt(process.env.OLLAMA_TIMEOUT_MS || "30000", 10);
+const TOP_K_RETRIEVAL = parseInt(process.env.TOP_K_RETRIEVAL   || "9",    10);
+const TOP_K_FINAL     = parseInt(process.env.TOP_K_FINAL       || "3",    10);
 
 // emotionMap is used to humanise the emotion label in fallback connection strings
 const emotionMap = {
@@ -183,24 +186,33 @@ function loadHistory() {
   return [];
 }
 
-function saveQuery(query, result) {
-  const history = loadHistory();
-  // Save only lightweight metadata — NOT the full result — to keep the file small
-  history.push({
-    query,
-    timestamp: new Date().toISOString(),
-    emotion: result.understanding?.emotion,
-    situation: result.understanding?.situation,
-    intent_type: result.understanding?.intent_type,
-    verse_ids: (result.guidance || []).map(g => `${g.chapter}:${g.verse}`)
-  });
-  // Keep last 50 queries to prevent file bloat
-  if (history.length > 50) history.shift();
+async function saveQuery(query, result) {
   try {
-    fs.writeFileSync(historyPath, JSON.stringify(history, null, 2));
+    const history = loadHistory();
+    // Save only lightweight metadata — NOT the full result — to keep the file small
+    history.push({
+      query,
+      timestamp: new Date().toISOString(),
+      query_mode:  result.understanding?.query_mode,
+      emotion:     result.understanding?.emotion,
+      situation:   result.understanding?.situation,
+      intent_type: result.understanding?.intent_type,
+      verse_ids:   (result.guidance || []).map(g => `${g.chapter}:${g.verse}`)
+    });
+    if (history.length > 50) history.shift();
+    await fs.promises.writeFile(historyPath, JSON.stringify(history, null, 2));
   } catch (writeErr) {
     console.warn("[pipeline] Could not save history:", writeErr.message);
   }
+}
+
+/** Append a structured log line for observability (7.1) */
+async function appendRequestLog(entry) {
+  try {
+    const logPath = path.join(projectRoot, "outputs", "requests.log");
+    const line = JSON.stringify(entry) + "\n";
+    await fs.promises.appendFile(logPath, line);
+  } catch { /* non-critical */ }
 }
 
 function logStage(stage, details = {}) {
@@ -365,72 +377,149 @@ async function callOllama(prompt) {
 }
 
 export async function runIntelligentPipeline(query) {
+  const startTime = Date.now();
   query = safeTrim(query);
-  if (!query) {
-    throw new Error("Query is required");
-  }
+  if (!query) throw new Error("Query is required");
 
   logStage("start", { query });
 
-  // 1) Analyze query — deep intent understanding (intentAnalyzer.js)
+  // 1) Analyze query
   const understanding = analyzeIntent(query);
   logStage("analyze_intent", {
-    emotion: understanding.emotion,
+    query_mode:        understanding.query_mode,
+    emotion:           understanding.emotion,
     emotion_confidence: understanding.emotion_confidence,
-    situation: understanding.situation,
-    intent_type: understanding.intent_type
+    situation:         understanding.situation,
+    intent_type:       understanding.intent_type
   });
 
-  // 2) Hybrid retrieval — pass field-level FAISS bias AND intent labels so
-  // canonical emotion/situation names score directly against verse metadata.
+  // 1b) Compound emotion bias blending (1.3)
+  // If runner-up emotion exists and primary confidence is below 0.85,
+  // blend search bias 70/30 to honour secondary emotional signal.
+  const biasToUse = { ...understanding.search_bias };
+  if (understanding.emotion_runner_up && understanding.emotion_confidence < 0.85) {
+    const BIAS_PRESETS = {
+      emotional_support:    { vectorWeight: 0.2,  emotionWeight: 0.5,  lifeSituationWeight: 0.25, keywordsWeight: 0.05 },
+      philosophical_seeking:{ vectorWeight: 0.45, emotionWeight: 0.2,  lifeSituationWeight: 0.25, keywordsWeight: 0.10 },
+      action_guidance:      { vectorWeight: 0.35, emotionWeight: 0.25, lifeSituationWeight: 0.30, keywordsWeight: 0.10 }
+    };
+    // Use philosophical seeking as proxy for the runner-up
+    const runnerBias = BIAS_PRESETS["emotional_support"];
+    Object.keys(biasToUse).forEach(k => {
+      biasToUse[k] = biasToUse[k] * 0.7 + (runnerBias[k] || 0) * 0.3;
+    });
+  }
+
+  // 2) Hybrid retrieval
   const intentLabels = { emotion: understanding.emotion, situation: understanding.situation };
-  const hybridCandidates = await getTopMatches(query, 9, understanding.search_bias, intentLabels);
-  const topVerses = selectTopVersesWithKg(hybridCandidates, understanding.emotion, understanding.situation, 3);
+  const hybridCandidates = await getTopMatches(query, TOP_K_RETRIEVAL, biasToUse, intentLabels);
+  const topVerses = selectTopVersesWithKg(hybridCandidates, understanding.emotion, understanding.situation, TOP_K_FINAL);
   logStage("retrieval", {
     selected: topVerses.map(v => ({ id: v.id, score: v.final_hybrid_score }))
   });
 
-  // 3) Call Ollama for guidance
-  const prompt = `
-You are a Bhagavad Gita assistant that gives clear, practical guidance.
+  // 3) Related verses from KG neighbors (3.5)
+  const relatedVersesRaw = topVerses.length > 0
+    ? getConnectedVerses(topVerses[0].id, 1)
+        .slice(0, 4)
+        .map(n => {
+          const details = verseDetailsMap.get(n.id) || {};
+          return {
+            id:          n.id,
+            chapter:     n.chapter,
+            verse:       n.verse,
+            translation: details.translation || n.translation || "",
+            connection_type: (n.connection?.shared_principles || n.connection?.shared_emotion_tags || [])[0] || "related"
+          };
+        })
+    : [];
+
+  // 4) Session memory: last 2 prior queries/emotions for LLM context (3.4)
+  const recentHistory = loadHistory().slice(-2);
+  const sessionContext = recentHistory.length > 0
+    ? `\nPrevious session context (for awareness only, do not repeat):\n` +
+      recentHistory.map(h => `- ${h.query} (emotion: ${h.emotion})`).join("\n")
+    : "";
+
+  // ──────────────────────────────────────────────────────────────
+  // FORK: informational mode vs emotional/action mode  (1.1)
+  // ──────────────────────────────────────────────────────────────
+  if (understanding.query_mode === "informational") {
+    logStage("mode", { type: "informational" });
+
+    // For informational queries: return verse study view with purport excerpts
+    const verseStudy = topVerses.map(v => {
+      const purport = purportDetailsMap.get(v.id) || {};
+      return {
+        chapter:        v.chapter,
+        verse:          v.verse,
+        translation:    v.translation || "",
+        purport_excerpt: purport.summary || v.summary || "",
+        core_idea:      v.core_idea || "",
+        principles:     v.principles || []
+      };
+    });
+
+    const informationalOutput = {
+      understanding: {
+        query_mode:         "informational",
+        emotion:            understanding.emotion,
+        emotion_confidence: understanding.emotion_confidence,
+        situation:          understanding.situation,
+        intent_type:        understanding.intent_type
+      },
+      mode:    "informational",
+      verses:  verseStudy,
+      guidance: verseStudy.map((v, i) => ({
+        chapter:     v.chapter,
+        verse:       v.verse,
+        translation: v.translation,
+        insight:     v.core_idea || getFallbackInsight(v, i),
+        connection:  v.purport_excerpt || `Chapter ${v.chapter} explores this teaching in depth.`
+      })),
+      final_advice: "Take time to study these verses. Wisdom deepens with reflection.",
+      related_verses: relatedVersesRaw
+    };
+
+    // Non-blocking saves
+    saveQuery(query, informationalOutput);
+    appendRequestLog({
+      ts: new Date().toISOString(), query_mode: "informational",
+      emotion: understanding.emotion, latency_ms: Date.now() - startTime
+    });
+    return informationalOutput;
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // EMOTIONAL / ACTION MODE (original pipeline)
+  // ──────────────────────────────────────────────────────────────
+
+  // 5) Build LLM prompt
+  const emotionNoun = emotionMap[understanding.emotion] || understanding.emotion;
+  const prompt = `You are a Bhagavad Gita assistant that gives clear, practical guidance.
 
 User Query: ${query}
 Emotion: ${understanding.emotion}
-Situation: ${understanding.situation}
+Situation: ${understanding.situation}${sessionContext}
 
 Verses:
 ${topVerses.map(v => `${v.chapter}:${v.verse} - ${v.translation}`).join("\n")}
 
 Task:
-- For EACH verse:
-  - Give 1 short insight (max 15 words)
-  - Explain how it relates to the user's situation (1 sentence)
+- For EACH verse: Give 1 short insight (max 15 words) and 1 connection to user situation
+- Give 1 final practical advice (max 20 words)
 
-- Then give 1 final practical advice (max 20 words)
-
-STRICT RULES:
-- Output ONLY valid JSON
-- No explanations outside JSON
-- No repetition
-- Keep language simple and human
-- Do NOT copy full verse text
+STRICT RULES: Output ONLY valid JSON. No text outside JSON.
 
 JSON FORMAT:
 {
   "guidance": [
-    {
-      "chapter": number,
-      "verse": number,
-      "insight": "short insight",
-      "connection": "specific to user situation"
-    }
+    { "chapter": number, "verse": number, "insight": "...", "connection": "..." }
   ],
-  "final_advice": "short actionable advice"
+  "final_advice": "..."
 }`;
 
-  // 3) Generate Intelligent Fallback First
-  const emotionNoun = emotionMap[understanding.emotion] || understanding.emotion;
-
+  // 6) Deterministic fallback (built before LLM call)
   const fallbackGuidanceResult = {
     guidance: topVerses.map((v, index) => {
       const connections = [
@@ -439,10 +528,11 @@ JSON FORMAT:
         `This calms the mind by focusing on what you can control.`
       ];
       return {
-        chapter: v.chapter,
-        verse: v.verse,
-        insight: getFallbackInsight(v, index),
-        connection: connections[index % connections.length]
+        chapter:     v.chapter,
+        verse:       v.verse,
+        translation: v.translation || "",
+        insight:     getFallbackInsight(v, index),
+        connection:  connections[index % connections.length]
       };
     }),
     final_advice: adviceTemplates[understanding.emotion] || "Take one calm step forward"
@@ -451,12 +541,10 @@ JSON FORMAT:
   let guidanceResult = fallbackGuidanceResult;
   let usedFallback = true;
 
-  // 4) Call LLM as an Optional Enhancer
+  // 7) LLM enhancement
   try {
     const rawLLMOutput = await callOllama(prompt);
     const parsedLLM = tryParseJson(rawLLMOutput);
-
-    // Build a Set of valid verse IDs that were actually sent to the LLM
     const validVerseIds = new Set(topVerses.map(v => `${v.chapter}-${v.verse}`));
 
     const isValidGuidance =
@@ -474,7 +562,14 @@ JSON FORMAT:
       );
 
     if (isValidGuidance) {
-      guidanceResult = parsedLLM;
+      // Inject translation into LLM guidance (3.1)
+      guidanceResult = {
+        ...parsedLLM,
+        guidance: parsedLLM.guidance.map(g => ({
+          ...g,
+          translation: (verseDetailsMap.get(`${g.chapter}-${g.verse}`) || {}).translation || ""
+        }))
+      };
       usedFallback = false;
     } else {
       throw new Error("Invalid or incomplete JSON structure from LLM");
@@ -483,47 +578,53 @@ JSON FORMAT:
     logStage("llama_fallback_triggered", { reason: err.message });
   }
 
-  // 5) Practice generation (Agent 5 - deterministic)
+  // 8) Practice generation
   logStage("practice_generation", { mode: "local" });
-
-  // Gather all principles and core ideas
   const allPrinciples = topVerses.reduce((acc, v) => acc.concat(v.principles || []), []);
-  const allCoreIdeas = topVerses.map(v => v.core_idea).filter(Boolean);
+  const allCoreIdeas  = topVerses.map(v => v.core_idea).filter(Boolean);
 
   const practice = generatePractice({
-    emotion: understanding.emotion,
-    situation: understanding.situation,
+    emotion:      understanding.emotion,
+    situation:    understanding.situation,
     core_struggle: understanding.core_struggle,
-    principles: allPrinciples,
-    core_idea: allCoreIdeas[0] // just pass the first main idea
+    principles:   allPrinciples,
+    core_idea:    allCoreIdeas[0]
   });
 
-  // 5) Final Assembly
+  // 9) Final Assembly
   const finalOutput = {
     understanding: {
-      emotion: understanding.emotion,
+      query_mode:         understanding.query_mode,
+      emotion:            understanding.emotion,
       emotion_confidence: understanding.emotion_confidence,
-      emotion_runner_up: understanding.emotion_runner_up,
-      situation: understanding.situation,
-      core_struggle: understanding.core_struggle,
-      intent_type: understanding.intent_type
+      emotion_runner_up:  understanding.emotion_runner_up,
+      situation:          understanding.situation,
+      core_struggle:      understanding.core_struggle,
+      intent_type:        understanding.intent_type
     },
-    guidance: guidanceResult.guidance,
-    final_advice: guidanceResult.final_advice,
+    mode:           "emotional",
+    guidance:       guidanceResult.guidance,
+    final_advice:   guidanceResult.final_advice,
+    related_verses: relatedVersesRaw,
     practice
   };
 
+  // Non-blocking saves
   const outputPath = path.join(projectRoot, "outputs", "answers.json");
-  // ensure outputs dir exists
   if (!fs.existsSync(path.join(projectRoot, "outputs"))) {
     fs.mkdirSync(path.join(projectRoot, "outputs"), { recursive: true });
   }
-  fs.writeFileSync(outputPath, JSON.stringify(finalOutput, null, 2));
-
-  // Save to memory history
+  fs.promises.writeFile(outputPath, JSON.stringify(finalOutput, null, 2)).catch(() => {});
   saveQuery(query, finalOutput);
+  appendRequestLog({
+    ts: new Date().toISOString(), query_mode: understanding.query_mode,
+    emotion: understanding.emotion, situation: understanding.situation,
+    intent_type: understanding.intent_type,
+    verses_selected: topVerses.map(v => v.id),
+    used_llm: !usedFallback, latency_ms: Date.now() - startTime
+  });
 
-  logStage("final_output", { output: "outputs/answers.json", used_fallback: usedFallback });
+  logStage("final_output", { used_fallback: usedFallback, latency_ms: Date.now() - startTime });
   return finalOutput;
 }
 

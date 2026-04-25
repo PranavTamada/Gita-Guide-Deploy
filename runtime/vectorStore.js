@@ -91,8 +91,8 @@ class VectorStore {
   async initEmbedder() {
     if (this.embedder) return;
 
-    console.log('Initializing embedder model (all-MiniLM-L6-v2)...');
-    this.embedder = await pipeline('feature-extraction', '@xenova/all-MiniLM-L6-v2');
+    console.log('Initializing embedder model (Xenova/all-MiniLM-L6-v2)...');
+    this.embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
     console.log('Embedder initialized successfully');
   }
 

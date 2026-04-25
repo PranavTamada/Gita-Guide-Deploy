@@ -2,614 +2,432 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Bhagavad Gita — AI Wisdom Guide</title>
   <meta name="description" content="Ask life questions and receive personalized guidance from the Bhagavad Gita powered by AI.">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,500;0,700;1,400&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
     :root {
-      --bg: #0f0f13;
-      --bg-card: #1a1a22;
-      --bg-card-alt: #15151d;
-      --bg-input: #1e1e28;
-      --border: rgba(255,255,255,0.06);
-      --border-focus: rgba(232,175,110,0.4);
-      --text: #e8e4de;
-      --text-dim: #8a8690;
-      --text-muted: #5c5868;
-      --accent: #e8af6e;
-      --accent-glow: rgba(232,175,110,0.15);
-      --accent-deep: #c4864a;
-      --advice-bg: linear-gradient(135deg, rgba(232,175,110,0.10), rgba(196,134,74,0.06));
-      --radius: 16px;
-      --radius-sm: 10px;
-      --shadow: 0 4px 24px rgba(0,0,0,0.3);
+      --bg: #0f0f13; --bg-card: #1a1a22; --bg-card-alt: #15151d; --bg-input: #1e1e28;
+      --border: rgba(255,255,255,0.06); --text: #e8e4de; --text-dim: #8a8690; --text-muted: #5c5868;
+      --accent: #e8af6e; --accent-glow: rgba(232,175,110,0.15); --accent-deep: #c4864a;
+      --radius: 16px; --radius-sm: 10px; --shadow: 0 4px 24px rgba(0,0,0,0.3);
     }
-
-    body {
-      font-family: 'Inter', system-ui, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      line-height: 1.6;
-      -webkit-font-smoothing: antialiased;
-    }
-
-    /* Subtle background pattern */
-    body::before {
-      content: '';
-      position: fixed;
-      inset: 0;
-      background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(232,175,110,0.06), transparent 70%);
-      pointer-events: none;
-      z-index: 0;
-    }
-
-    .container {
-      max-width: 720px;
-      margin: 0 auto;
-      padding: 2rem 1.25rem 4rem;
-      position: relative;
-      z-index: 1;
-    }
+    body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; line-height: 1.6; -webkit-font-smoothing: antialiased; padding-bottom: 2rem; transition: background 0.5s ease; }
+    body::before { content: ''; position: fixed; inset: 0; background: radial-gradient(ellipse 80% 60% at 50% -10%, var(--accent-glow), transparent 70%); pointer-events: none; z-index: 0; transition: background 0.5s ease; }
+    .container { max-width: 960px; margin: 0 auto; padding: 1.5rem 1.25rem; position: relative; z-index: 1; }
+    
+    /* Nav */
+    .tabs { display: flex; gap: 1rem; margin-bottom: 1.5rem; justify-content: center; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+    .tab-btn { background: none; border: none; color: var(--text-dim); font-size: 0.85rem; font-weight: 500; cursor: pointer; padding: 0.5rem 1rem; border-radius: var(--radius-sm); transition: all 0.2s; }
+    .tab-btn.active { color: var(--accent); background: var(--accent-glow); }
+    .tab-btn:hover:not(.active) { color: var(--text); background: rgba(255,255,255,0.05); }
 
     /* Header */
-    header {
-      text-align: center;
-      margin-bottom: 2.5rem;
-      padding-top: 1rem;
-    }
-    .logo {
-      font-size: 2.8rem;
-      margin-bottom: 0.5rem;
-      filter: drop-shadow(0 0 12px rgba(232,175,110,0.3));
-    }
-    header h1 {
-      font-family: 'Playfair Display', serif;
-      font-size: 1.75rem;
-      font-weight: 700;
-      color: var(--text);
-      letter-spacing: -0.02em;
-    }
-    header p {
-      font-size: 0.85rem;
-      color: var(--text-dim);
-      margin-top: 0.35rem;
-      font-weight: 300;
-    }
+    header { text-align: center; margin-bottom: 2rem; }
+    @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+    .logo { font-size: 2.8rem; margin-bottom: 0.25rem; filter: drop-shadow(0 0 15px var(--accent-glow)); transition: filter 0.5s ease; animation: float 6s ease-in-out infinite; display: inline-block; }
+    header h1 { font-family: 'Playfair Display', serif; font-size: 1.6rem; font-weight: 700; color: var(--text); }
+    header p { font-size: 0.85rem; color: var(--text-dim); margin-top: 0.25rem; font-weight: 300; }
 
-    /* Input area */
-    .input-area {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.5rem;
-      margin-bottom: 1rem;
-      box-shadow: var(--shadow);
-    }
-    #query-input {
-      width: 100%;
-      background: var(--bg-input);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 1rem 1.15rem;
-      font-family: inherit;
-      font-size: 0.95rem;
-      color: var(--text);
-      resize: none;
-      outline: none;
-      min-height: 80px;
-      line-height: 1.65;
-      transition: border-color 0.2s, box-shadow 0.2s;
-    }
-    #query-input:focus {
-      border-color: var(--border-focus);
-      box-shadow: 0 0 0 3px var(--accent-glow);
-    }
-    #query-input::placeholder { color: var(--text-muted); }
+    /* Input */
+    .input-area { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1rem; box-shadow: var(--shadow); position: relative; transition: transform 0.3s, box-shadow 0.3s; }
+    .input-area:focus-within { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.5); }
+    #query-input { width: 100%; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 1rem; font-family: inherit; font-size: 0.95rem; color: var(--text); resize: none; outline: none; min-height: 50px; max-height: 150px; line-height: 1.5; transition: all 0.3s; overflow-y: hidden; }
+    #query-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+    .input-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 0.75rem; gap: 0.5rem; }
+    .chips { display: flex; gap: 0.4rem; flex-wrap: nowrap; overflow-x: auto; flex: 1; padding-bottom: 4px; scrollbar-width: none; }
+    .chips::-webkit-scrollbar { display: none; }
+    .chip { font-size: 0.7rem; padding: 5px 12px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--text-dim); cursor: pointer; transition: all 0.2s; white-space: nowrap; flex-shrink: 0; }
+    .chip:hover { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
+    .chip:active { transform: scale(0.95); }
+    #submit-btn { font-size: 0.85rem; font-weight: 600; padding: 8px 18px; background: linear-gradient(135deg, var(--accent), var(--accent-deep)); color: #1a1a22; border: none; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s; flex-shrink: 0; }
+    #submit-btn:hover:not(:disabled) { box-shadow: 0 4px 15px var(--accent-glow); transform: translateY(-1px); }
+    #submit-btn:active:not(:disabled) { transform: scale(0.95); }
+    #submit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-    .input-actions {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-top: 0.85rem;
-      gap: 0.75rem;
-    }
-    .chips {
-      display: flex;
-      gap: 0.4rem;
-      flex-wrap: wrap;
-      flex: 1;
-    }
-    .chip {
-      font-size: 0.7rem;
-      padding: 5px 12px;
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      background: transparent;
-      color: var(--text-dim);
-      cursor: pointer;
-      transition: all 0.2s;
-      font-family: inherit;
-      white-space: nowrap;
-    }
-    .chip:hover {
-      background: var(--accent-glow);
-      border-color: var(--accent-deep);
-      color: var(--accent);
-    }
-
-    #submit-btn {
-      font-family: inherit;
-      font-size: 0.85rem;
-      font-weight: 600;
-      padding: 9px 22px;
-      background: linear-gradient(135deg, var(--accent), var(--accent-deep));
-      color: #1a1a22;
-      border: none;
-      border-radius: var(--radius-sm);
-      cursor: pointer;
-      transition: opacity 0.2s, transform 0.15s;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-    #submit-btn:hover { opacity: 0.9; transform: translateY(-1px); }
-    #submit-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
-
-    /* Idle state */
-    #idle-state {
-      text-align: center;
-      padding: 3.5rem 1rem;
-    }
-    .idle-om {
-      font-size: 3.5rem;
-      color: var(--accent);
-      opacity: 0.2;
-      font-family: 'Playfair Display', serif;
-    }
-    .idle-quote {
-      font-family: 'Playfair Display', serif;
-      font-style: italic;
-      font-size: 0.95rem;
-      color: var(--text-dim);
-      max-width: 440px;
-      margin: 0.75rem auto 0;
-      line-height: 1.7;
-    }
+    /* Onboarding / Layout */
+    .hero-layout { display: flex; gap: 2rem; align-items: flex-start; }
+    .hero-layout > #onboarding { flex: 1; margin-top: 0; }
+    .hero-layout > .ask-main { flex: 1.2; width: 100%; display: flex; flex-direction: column; }
+    #onboarding { background: var(--bg-card-alt); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; }
+    .ob-title { font-family: 'Playfair Display', serif; font-size: 1.2rem; color: var(--accent); margin-bottom: 0.5rem; }
+    .ob-text { font-size: 0.85rem; color: var(--text-dim); margin-bottom: 1.5rem; line-height: 1.6; }
+    .ob-preview { border-left: 2px solid var(--accent); padding-left: 1rem; margin-bottom: 1.5rem; opacity: 0.8; }
+    .ob-preview h4 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.25rem; }
+    .ob-preview p { font-family: 'Playfair Display', serif; font-size: 0.9rem; font-style: italic; color: var(--text); }
+    .ob-steps { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; text-align: center; font-size: 0.75rem; color: var(--text-dim); border-top: 1px solid var(--border); padding-top: 1rem; }
+    .ob-step strong { display: block; color: var(--text); margin-bottom: 0.25rem; }
 
     /* Loading */
-    #loading-state {
-      display: none;
-      align-items: center;
-      gap: 14px;
-      padding: 2.5rem 0;
-      justify-content: center;
-    }
-    .spinner {
-      width: 22px; height: 22px;
-      border: 2px solid rgba(232,175,110,0.2);
-      border-top-color: var(--accent);
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
+    #loading-state { display: none; text-align: center; padding: 3rem 1rem; }
+    .spinner { width: 30px; height: 30px; border: 2px solid rgba(255,255,255,0.1); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 1rem; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .loading-dots {
-      display: flex; gap: 4px;
-    }
-    .loading-dots span {
-      width: 6px; height: 6px;
-      background: var(--accent);
-      border-radius: 50%;
-      opacity: 0.25;
-      animation: pulse 1.2s ease-in-out infinite;
-    }
-    .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
-    .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
-    @keyframes pulse {
-      0%,80%,100% { opacity: 0.2; transform: scale(0.85); }
-      40% { opacity: 1; transform: scale(1); }
-    }
-    .loading-text {
-      font-family: 'Playfair Display', serif;
-      font-style: italic;
-      font-size: 0.9rem;
-      color: var(--text-dim);
-    }
+    .teaser-wrap { height: 60px; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+    .teaser-text { font-family: 'Playfair Display', serif; font-style: italic; font-size: 0.95rem; color: var(--text-dim); position: absolute; width: 100%; text-align: center; opacity: 0; transition: opacity 0.5s ease; }
+    .teaser-text.active { opacity: 1; }
 
+    /* Sections Shared */
+    .section-label { font-size: 0.65rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; }
+    .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1rem; box-shadow: var(--shadow); position: relative; transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s, border-color 0.3s; }
+    .card:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(0,0,0,0.4), 0 0 15px var(--accent-glow); border-color: rgba(255,255,255,0.15); }
+    
     /* Results */
     #results { display: none; }
+    @keyframes slideUpFade { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+    #results > * { animation: slideUpFade 0.5s cubic-bezier(0.165, 0.84, 0.44, 1) both; }
+    #results > *:nth-child(1) { animation-delay: 0.05s; }
+    #results > *:nth-child(2) { animation-delay: 0.15s; }
+    #results > *:nth-child(3) { animation-delay: 0.25s; }
+    #results > *:nth-child(4) { animation-delay: 0.35s; }
+    #results > *:nth-child(5) { animation-delay: 0.45s; }
+    #results > *:nth-child(6) { animation-delay: 0.55s; }
+    
+    .understand-grid { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; }
+    .understand-item span { display: block; }
+    .understand-item span:first-child { font-size: 0.6rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+    .understand-item span:last-child { font-family: 'Playfair Display', serif; font-size: 0.9rem; color: var(--text); }
+    .intent-badge { display: inline-block; font-size: 0.65rem; padding: 4px 10px; border-radius: 999px; background: var(--accent-glow); border: 1px solid var(--accent); color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
 
-    .section-label {
-      font-size: 0.65rem;
-      font-weight: 600;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: var(--accent);
-      margin-bottom: 0.65rem;
-    }
+    .verse-ref { font-family: 'Inter', sans-serif; font-size: 0.75rem; font-weight: 600; color: var(--text-dim); margin-bottom: 0.5rem; }
+    .verse-translation { font-family: 'Playfair Display', serif; font-size: 1rem; font-style: italic; line-height: 1.6; color: var(--text); border-left: 2px solid var(--accent); padding-left: 1rem; margin-bottom: 1rem; }
+    .insight-box { background: var(--bg-card-alt); border-radius: var(--radius-sm); padding: 1rem; }
+    .insight-title { font-size: 0.85rem; font-weight: 600; color: var(--accent); margin-bottom: 0.25rem; }
+    .insight-text { font-size: 0.85rem; color: var(--text-dim); }
+    .btn-icon { background: none; border: none; color: var(--text-muted); cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 4px; font-size: 0.75rem; padding: 4px 8px; border-radius: var(--radius-sm); }
+    .btn-icon:hover { color: var(--accent); background: var(--accent-glow); transform: translateY(-1px); }
+    .btn-icon:active { transform: scale(0.95); }
+    .card-actions { position: absolute; top: 1.25rem; right: 1.25rem; display: flex; gap: 0.5rem; }
 
-    /* Understanding card */
-    .understanding-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.25rem 1.35rem;
-      margin-bottom: 1.25rem;
-      box-shadow: var(--shadow);
-      animation: slideUp 0.35s ease both;
-    }
-    .understanding-grid {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem 1.5rem;
-      margin-bottom: 0.85rem;
-    }
-    .understand-item { display: flex; flex-direction: column; gap: 2px; }
-    .understand-label {
-      font-size: 0.6rem;
-      font-weight: 600;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--text-muted);
-    }
-    .understand-value {
-      font-family: 'Playfair Display', serif;
-      font-style: italic;
-      font-size: 0.9rem;
-      color: var(--text);
-    }
+    .advice-card { background: linear-gradient(135deg, rgba(232,175,110,0.1), rgba(196,134,74,0.05)); border: 1px solid rgba(232,175,110,0.3); text-align: center; padding: 1.5rem; }
+    .advice-card h3 { font-family: 'Playfair Display', serif; font-size: 1.2rem; color: var(--accent); margin-bottom: 1rem; }
+    
+    .practice-list { list-style: none; counter-reset: pcounter; }
+    .practice-list li { position: relative; padding-left: 2rem; margin-bottom: 0.75rem; font-size: 0.85rem; color: var(--text-dim); }
+    .practice-list li::before { counter-increment: pcounter; content: counter(pcounter); position: absolute; left: 0; top: -1px; width: 1.25rem; height: 1.25rem; background: var(--bg-card-alt); border: 1px solid var(--border); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.65rem; color: var(--accent); font-weight: 600; }
 
-    /* Intent badge */
-    .intent-row {
-      display: flex;
-      align-items: center;
-      gap: 0.6rem;
-      flex-wrap: wrap;
-      padding-top: 0.65rem;
-      border-top: 1px solid var(--border);
-    }
-    .intent-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35rem;
-      font-size: 0.68rem;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      padding: 4px 12px;
-      border-radius: 999px;
-      border: 1px solid rgba(232,175,110,0.3);
-      background: var(--accent-glow);
-      color: var(--accent);
-      text-transform: uppercase;
-    }
-    .confidence-chip {
-      font-size: 0.65rem;
-      color: var(--text-muted);
-      display: flex;
-      align-items: center;
-      gap: 0.35rem;
-    }
-    .confidence-bar-wrap {
-      width: 60px;
-      height: 4px;
-      background: rgba(255,255,255,0.08);
-      border-radius: 999px;
-      overflow: hidden;
-    }
-    .confidence-bar-fill {
-      height: 100%;
-      border-radius: 999px;
-      background: linear-gradient(90deg, var(--accent-deep), var(--accent));
-      transition: width 0.4s ease;
-    }
+    .related-verses { display: grid; gap: 0.5rem; }
+    .related-item { background: var(--bg-card-alt); padding: 0.75rem 1rem; border-radius: var(--radius-sm); font-size: 0.8rem; display: flex; justify-content: space-between; align-items: center; border: 1px solid transparent; transition: all 0.2s; cursor: pointer; }
+    .related-item:hover { border-color: var(--accent); transform: translateX(4px); box-shadow: var(--shadow); }
+    .related-ref { color: var(--accent); font-weight: 500; }
+    .related-conn { color: var(--text-muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
 
-    /* Guidance cards */
-    .guidance-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      margin-bottom: 0.9rem;
-      overflow: hidden;
-      box-shadow: var(--shadow);
-      animation: slideUp 0.35s ease both;
-    }
-    .guidance-card:nth-child(2) { animation-delay: 0.08s; }
-    .guidance-card:nth-child(3) { animation-delay: 0.16s; }
-    .guidance-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0.75rem 1.15rem;
-      background: var(--bg-card-alt);
-      border-bottom: 1px solid var(--border);
-    }
-    .verse-ref {
-      font-size: 0.7rem;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--accent);
-    }
-    .guidance-body { padding: 1rem 1.15rem; }
-    .insight-text {
-      font-size: 0.9rem;
-      line-height: 1.7;
-      color: var(--text);
-      margin-bottom: 0.65rem;
-    }
-    .connection-text {
-      font-size: 0.8rem;
-      line-height: 1.6;
-      color: var(--text-dim);
-      font-style: italic;
-      padding-left: 0.75rem;
-      border-left: 2px solid var(--accent-deep);
-    }
 
-    /* Advice section */
-    .advice-card {
-      background: var(--advice-bg);
-      border: 1px solid rgba(232,175,110,0.18);
-      border-radius: var(--radius);
-      padding: 1.35rem 1.5rem;
-      margin-bottom: 1.25rem;
-      box-shadow: 0 0 30px rgba(232,175,110,0.06);
-      animation: slideUp 0.35s ease both;
-      animation-delay: 0.22s;
-    }
-    .advice-text {
-      font-family: 'Playfair Display', serif;
-      font-size: 1.15rem;
-      line-height: 1.65;
-      color: var(--accent);
-      font-weight: 500;
-    }
+    
+    /* Bookmarks Tab */
+    #bookmarks-view { display: none; }
+    .empty-state { text-align: center; padding: 3rem 1rem; color: var(--text-dim); font-size: 0.9rem; font-style: italic; }
 
-    /* Practice section */
-    .practice-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.25rem 1.35rem;
-      margin-bottom: 1rem;
-      box-shadow: var(--shadow);
-      animation: slideUp 0.35s ease both;
-      animation-delay: 0.28s;
+    @media (max-width: 768px) {
+      .hero-layout { flex-direction: column; }
     }
-    .practice-title {
-      font-family: 'Playfair Display', serif;
-      font-size: 1rem;
-      color: var(--text);
-      margin-bottom: 0.75rem;
-    }
-    .practice-steps {
-      list-style: none;
-      padding: 0;
-      counter-reset: step;
-    }
-    .practice-steps li {
-      counter-increment: step;
-      font-size: 0.85rem;
-      line-height: 1.7;
-      color: var(--text);
-      padding: 0.5rem 0 0.5rem 2rem;
-      position: relative;
-      border-bottom: 1px solid var(--border);
-    }
-    .practice-steps li:last-child { border-bottom: none; }
-    .practice-steps li::before {
-      content: counter(step);
-      position: absolute;
-      left: 0;
-      top: 0.55rem;
-      width: 20px; height: 20px;
-      background: var(--accent-glow);
-      border: 1px solid rgba(232,175,110,0.25);
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.65rem;
-      font-weight: 700;
-      color: var(--accent);
-    }
-    .practice-purpose {
-      font-size: 0.8rem;
-      color: var(--text-dim);
-      font-style: italic;
-      margin-top: 0.65rem;
-      padding-top: 0.65rem;
-      border-top: 1px solid var(--border);
-    }
-
-    /* Error */
-    .error-msg {
-      text-align: center;
-      color: #e87070;
-      font-size: 0.9rem;
-      padding: 2rem 0;
-    }
-
-    @keyframes slideUp {
-      from { opacity: 0; transform: translateY(12px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
     @media (max-width: 520px) {
-      .container { padding: 1rem 0.75rem 3rem; }
-      header h1 { font-size: 1.4rem; }
-      .chips { display: none; }
-      .input-actions { justify-content: flex-end; }
+      .input-actions { flex-direction: column; align-items: stretch; }
+      .ob-steps { grid-template-columns: 1fr; text-align: left; gap: 0.5rem; }
     }
   </style>
 </head>
 <body>
+
   <div class="container">
     <header>
-      <div class="logo">🪷</div>
-      <h1>Bhagavad Gita Wisdom</h1>
-      <p>AI-powered guidance from 700 verses across 18 chapters</p>
+      <div class="logo">ॐ</div>
+      <h1>Bhagavad Gita</h1>
+      <p>AI-Powered Wisdom & Guidance</p>
     </header>
 
-    <div class="input-area">
-      <textarea id="query-input" placeholder="Share what you're feeling or facing…&#10;e.g. &quot;I feel paralyzed by fear of making the wrong decision&quot;" rows="3"></textarea>
-      <div class="input-actions">
-        <div class="chips">
-          <button class="chip" onclick="fillQuery('I feel anxious about my future career')">Career anxiety</button>
-          <button class="chip" onclick="fillQuery('I am consumed by anger and cannot let it go')">Anger</button>
-          <button class="chip" onclick="fillQuery('I lost someone I love and cannot move on')">Grief</button>
-          <button class="chip" onclick="fillQuery('I feel like giving up on everything')">Hopelessness</button>
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('ask')">Ask Guidance</button>
+      <button class="tab-btn" onclick="switchTab('bookmarks')">Saved Verses</button>
+    </div>
+
+    <!-- MAIN VIEW -->
+    <div id="ask-view">
+      <div class="hero-layout" id="hero-layout">
+        <div id="onboarding">
+          <div class="ob-title">Welcome to the Gita Guide</div>
+          <div class="ob-text">Ask any life question — whether you're seeking emotional support, facing a difficult choice, or simply curious about philosophy.</div>
+          <div class="ob-preview">
+            <h4>You will receive</h4>
+            <p>Relevant verses translated, paired with brief insights and a personalized daily practice.</p>
+          </div>
+          <div class="ob-steps">
+            <div class="ob-step"><strong>1. Share</strong> Write freely about your situation.</div>
+            <div class="ob-step"><strong>2. Reflect</strong> Read the selected wisdom.</div>
+            <div class="ob-step"><strong>3. Act</strong> Follow the small, practical steps.</div>
+          </div>
         </div>
-        <button id="submit-btn" onclick="submitQuery()">Seek Guidance →</button>
+
+        <div class="ask-main">
+          <div class="input-area">
+            <textarea id="query-input" placeholder="What is troubling you today? Explain your situation or ask a philosophical question..." oninput="autoResize(this)" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();submitQuery();}"></textarea>
+            <div class="input-actions">
+              <div class="chips" id="suggestion-chips">
+                <button class="chip" onclick="fillQuery('I feel overwhelmed with my workload and have no time for myself.')">Overwhelmed</button>
+                <button class="chip" onclick="fillQuery('How do I make a difficult decision when both options feel wrong?')">Tough Decision</button>
+                <button class="chip" onclick="fillQuery('What does the Gita say about karma and duty?')">What is Karma?</button>
+              </div>
+              <button id="submit-btn" onclick="submitQuery()">Get Guidance</button>
+            </div>
+          </div>
+
+          <div id="loading-state">
+            <div class="spinner"></div>
+            <div class="teaser-wrap" id="teaser-wrap">
+              <div class="teaser-text active">"You have a right to perform your prescribed duty..."</div>
+              <div class="teaser-text">"For him who has conquered the mind, the mind is the best of friends..."</div>
+              <div class="teaser-text">"A person is considered still further advanced when he regards honest well-wishers..."</div>
+            </div>
+          </div>
+
+          <div id="results">
+            <!-- Results rendered here -->
+          </div>
+        </div>
       </div>
     </div>
 
-    <div id="idle-state">
-      <div class="idle-om">ॐ</div>
-      <div class="idle-quote">"Whenever righteousness declines and unrighteousness prevails, I manifest myself — for the protection of the good, I descend age after age."</div>
+
+
+    <!-- BOOKMARKS VIEW -->
+    <div id="bookmarks-view">
+      <div class="section-label">Saved Wisdom</div>
+      <div id="bookmarks-list">
+        <!-- Filled by JS -->
+      </div>
     </div>
 
-    <div id="loading-state">
-      <div class="spinner"></div>
-      <div class="loading-dots"><span></span><span></span><span></span></div>
-      <div class="loading-text">Contemplating wisdom…</div>
-    </div>
-
-    <div id="results"></div>
   </div>
 
   <script>
-    const API_URL = '/ask';
-    const input = document.getElementById('query-input');
-    const btn = document.getElementById('submit-btn');
-    const idle = document.getElementById('idle-state');
-    const loading = document.getElementById('loading-state');
-    const results = document.getElementById('results');
-
-    // Restore last query from localStorage
-    const saved = localStorage.getItem('gita_last_query');
-    if (saved) input.value = saved;
-
-    function fillQuery(q) {
-      input.value = q;
-      submitQuery();
+    // --- State & Config ---
+    const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+      ? 'http://localhost:3000' : '';
+    
+    let bookmarks = JSON.parse(localStorage.getItem('gita_bookmarks') || '[]');
+    if(localStorage.getItem('gita_onboarded')) {
+      document.getElementById('onboarding').style.display = 'none';
     }
 
-    function esc(s) {
-      return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
+    const THEME_COLORS = {
+      anxiety: "#7c9cc0", grief: "#9b8fbf", anger: "#c47a5a", 
+      peace: "#7ab89a", seeking: "#e8af6e", neutral: "#e8af6e"
+    };
+
+    // --- UI Interactions ---
+    function autoResize(el) {
+      el.style.height = 'auto';
+      el.style.height = (el.scrollHeight) + 'px';
+    }
+
+    function fillQuery(text) {
+      const input = document.getElementById('query-input');
+      input.value = text;
+      autoResize(input);
+      input.focus();
+    }
+
+    function switchTab(tabId) {
+      document.getElementById('ask-view').style.display = tabId === 'ask' ? 'block' : 'none';
+      document.getElementById('bookmarks-view').style.display = tabId === 'bookmarks' ? 'block' : 'none';
+      
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      event.target.classList.add('active');
+
+      if(tabId === 'bookmarks') renderBookmarks();
+    }
+
+    function toggleBookmark(chapter, verse, translation, insight) {
+      const id = `${chapter}-${verse}`;
+      const idx = bookmarks.findIndex(b => b.id === id);
+      if (idx >= 0) {
+        bookmarks.splice(idx, 1);
+      } else {
+        bookmarks.unshift({ id, chapter, verse, translation, insight, ts: Date.now() });
+      }
+      localStorage.setItem('gita_bookmarks', JSON.stringify(bookmarks));
+      
+      // Update UI if clicked from results
+      const btn = document.getElementById(`bm-btn-${id}`);
+      if (btn) btn.innerHTML = idx >= 0 ? '🤍 Save' : '💛 Saved';
+      
+      if(document.getElementById('bookmarks-view').style.display === 'block') {
+        renderBookmarks();
+      }
+    }
+
+    async function shareResult() {
+      const text = document.getElementById('results').innerText;
+      try {
+        await navigator.clipboard.writeText("Guidance from Bhagavad Gita AI:\n\n" + text.slice(0, 500) + "...");
+        alert("Summary copied to clipboard!");
+      } catch {
+        alert("Failed to copy.");
+      }
+    }
+
+    // --- Main Flow ---
+    let teaserInterval;
+    function startTeasers() {
+      const texts = document.querySelectorAll('.teaser-text');
+      let idx = 0;
+      texts.forEach(t => t.classList.remove('active'));
+      texts[0].classList.add('active');
+      teaserInterval = setInterval(() => {
+        texts[idx].classList.remove('active');
+        idx = (idx + 1) % texts.length;
+        texts[idx].classList.add('active');
+      }, 3500);
     }
 
     async function submitQuery() {
+      const input = document.getElementById('query-input');
+      const btn = document.getElementById('submit-btn');
       const query = input.value.trim();
       if (!query) return;
 
-      localStorage.setItem('gita_last_query', query);
-
-      // UI: loading
-      idle.style.display = 'none';
-      results.style.display = 'none';
-      results.innerHTML = '';
-      loading.style.display = 'flex';
+      localStorage.setItem('gita_onboarded', 'true');
+      document.getElementById('onboarding').style.display = 'none';
+      
+      input.disabled = true;
       btn.disabled = true;
+      document.getElementById('results').style.display = 'none';
+      document.getElementById('loading-state').style.display = 'block';
+      startTeasers();
 
       try {
-        const resp = await fetch(API_URL, {
+        const res = await fetch(`${API_URL}/ask`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ query })
         });
-        if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
-        const data = await resp.json();
+        
+        if (!res.ok) throw new Error("Failed to get response");
+        const data = await res.json();
+        
+        clearInterval(teaserInterval);
+        document.getElementById('loading-state').style.display = 'none';
         renderResults(data);
+        
+        // Theme Adaptation
+        const baseColor = THEME_COLORS[data.understanding?.emotion] || THEME_COLORS.neutral;
+        document.documentElement.style.setProperty('--accent', baseColor);
+        document.documentElement.style.setProperty('--accent-glow', baseColor + '26'); // ~15% opacity
+        
       } catch (err) {
-        loading.style.display = 'none';
-        results.style.display = 'block';
-        results.innerHTML = `<div class="error-msg">Something went wrong. Please try again.<br><small style="color:var(--text-muted)">${esc(err.message)}</small></div>`;
+        clearInterval(teaserInterval);
+        document.getElementById('loading-state').style.display = 'none';
+        alert("Error: " + err.message);
       } finally {
+        input.disabled = false;
         btn.disabled = false;
       }
     }
 
     function renderResults(data) {
-      loading.style.display = 'none';
-      let html = '';
-
-      // 1. Understanding
-      const u = data.understanding;
-      if (u) {
-        // Intent type badge config
-        const intentConfig = {
-          emotional_support:    { icon: '💬', label: 'Emotional Support' },
-          philosophical_seeking:{ icon: '🔮', label: 'Philosophical Seeking' },
-          action_guidance:      { icon: '🎯', label: 'Action Guidance' }
-        };
-        const intent = intentConfig[u.intent_type] || { icon: '✦', label: u.intent_type || 'Seeking' };
-        const confPct = Math.round((u.emotion_confidence || 0) * 100);
-
-        html += `<div class="understanding-card">
-          <div class="section-label">Understanding</div>
-          <div class="understanding-grid">
-            ${u.emotion ? `<div class="understand-item"><span class="understand-label">Emotion</span><span class="understand-value">${esc(u.emotion)}</span></div>` : ''}
-            ${u.situation ? `<div class="understand-item"><span class="understand-label">Situation</span><span class="understand-value">${esc(u.situation)}</span></div>` : ''}
-            ${u.core_struggle ? `<div class="understand-item" style="flex:1;min-width:160px"><span class="understand-label">Core Struggle</span><span class="understand-value">${esc(u.core_struggle)}</span></div>` : ''}
+      const { understanding, guidance, final_advice, practice, related_verses, mode } = data;
+      const rDiv = document.getElementById('results');
+      
+      let html = `
+        <div class="section-label">Understanding Your Intent</div>
+        <div class="card">
+          <div class="understand-grid">
+            <div class="understand-item"><span>Query Mode</span><span>${understanding.query_mode === 'informational' ? 'Knowledge/Study' : 'Life Guidance'}</span></div>
+            <div class="understand-item"><span>Emotion</span><span>${understanding.emotion}</span></div>
+            <div class="understand-item"><span>Situation</span><span>${understanding.situation}</span></div>
           </div>
-          <div class="intent-row">
-            <span class="intent-badge">${intent.icon} ${esc(intent.label)}</span>
-            ${confPct > 0 ? `<span class="confidence-chip">Emotion confidence <div class="confidence-bar-wrap"><div class="confidence-bar-fill" style="width:${confPct}%"></div></div> ${confPct}%</span>` : ''}
+          ${understanding.intent_type ? `<div class="intent-badge">${understanding.intent_type.replace('_', ' ')}</div>` : ''}
+        </div>
+        
+        <div class="section-label">Guidance from the Gita</div>
+      `;
+
+      guidance.forEach(g => {
+        const isSaved = bookmarks.some(b => b.id === `${g.chapter}-${g.verse}`);
+        html += `
+          <div class="card">
+            <div class="card-actions">
+              <button class="btn-icon" id="bm-btn-${g.chapter}-${g.verse}" onclick="toggleBookmark(${g.chapter}, ${g.verse}, \`${g.translation?.replace(/`/g, "'") || ''}\`, \`${g.insight?.replace(/`/g, "'") || ''}\`)">
+                ${isSaved ? '💛 Saved' : '🤍 Save'}
+              </button>
+            </div>
+            <div class="verse-ref">Chapter ${g.chapter}, Verse ${g.verse}</div>
+            ${g.translation ? `<div class="verse-translation">"${g.translation}"</div>` : ''}
+            <div class="insight-box">
+              <div class="insight-title">${g.insight}</div>
+              <div class="insight-text">${g.connection}</div>
+            </div>
           </div>
-        </div>`;
-      }
+        `;
+      });
 
-      // 2. Guidance
-      const g = data.guidance;
-      if (Array.isArray(g) && g.length) {
-        html += `<div class="section-label" style="margin-top:0.5rem">Verse Guidance</div>`;
-        g.forEach(item => {
-          html += `<div class="guidance-card">
-            <div class="guidance-header">
-              <span class="verse-ref">Chapter ${esc(String(item.chapter))} · Verse ${esc(String(item.verse))}</span>
+      if (mode !== "informational" && practice) {
+        html += `
+          <div class="section-label">Moving Forward</div>
+          <div class="card advice-card">
+            <h3>"${final_advice}"</h3>
+            <div style="text-align:left; margin-top:1.5rem;">
+              <div class="verse-ref" style="margin-bottom:1rem;">${practice.title}</div>
+              <ul class="practice-list">
+                ${practice.steps.map(s => `<li>${s}</li>`).join('')}
+              </ul>
             </div>
-            <div class="guidance-body">
-              ${item.insight ? `<div class="insight-text">${esc(item.insight)}</div>` : ''}
-              ${item.connection ? `<div class="connection-text">${esc(item.connection)}</div>` : ''}
-            </div>
-          </div>`;
-        });
+            <button class="btn-icon" style="margin: 1.5rem auto 0; font-size:0.8rem" onclick="shareResult()">📤 Share Guidance</button>
+          </div>
+        `;
+      } else if (mode === "informational") {
+        html += `
+          <div class="card advice-card">
+            <h3>"${final_advice}"</h3>
+          </div>
+        `;
       }
 
-      // 3. Final Advice
-      if (data.final_advice) {
-        html += `<div class="advice-card">
-          <div class="section-label">Final Advice</div>
-          <div class="advice-text">${esc(data.final_advice)}</div>
-        </div>`;
+      if (related_verses && related_verses.length > 0) {
+        html += `
+          <div class="section-label" style="margin-top:1.5rem">Explore Further</div>
+          <div class="related-verses">
+            ${related_verses.map(rv => `
+              <div class="related-item" onclick="fillQuery('Tell me about chapter ${rv.chapter} verse ${rv.verse}'); submitQuery()">
+                <div>
+                  <span class="related-ref">Ch ${rv.chapter} : ${rv.verse}</span>
+                  <div style="font-family:'Playfair Display',serif; font-style:italic; font-size:0.9rem; color:var(--text); margin-top:2px;">"${rv.translation.slice(0, 50)}..."</div>
+                </div>
+                <span class="related-conn">${rv.connection_type}</span>
+              </div>
+            `).join('')}
+          </div>
+        `;
       }
 
-      // 4. Practice
-      const p = data.practice;
-      if (p && typeof p === 'object') {
-        html += `<div class="practice-card">
-          <div class="section-label">Daily Practice</div>
-          ${p.title ? `<div class="practice-title">${esc(p.title)}</div>` : ''}
-          ${Array.isArray(p.steps) && p.steps.length ? `<ol class="practice-steps">${p.steps.map(s => `<li>${esc(s)}</li>`).join('')}</ol>` : ''}
-          ${p.purpose ? `<div class="practice-purpose">${esc(p.purpose)}</div>` : ''}
-        </div>`;
-      }
-
-      if (!html) {
-        html = `<div class="error-msg">No guidance could be generated. Please try a more specific question.</div>`;
-      }
-
-      results.innerHTML = html;
-      results.style.display = 'block';
+      rDiv.innerHTML = html;
+      rDiv.style.display = 'block';
     }
 
-    // Ctrl/Cmd+Enter to submit
-    input.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitQuery();
-    });
+    // --- Auxiliary Views ---
+
+
+    function renderBookmarks() {
+      const list = document.getElementById('bookmarks-list');
+      if (bookmarks.length === 0) {
+        list.innerHTML = `<div class="empty-state">You haven't saved any verses yet.<br>Click the 'Save' button on any verse to keep it here.</div>`;
+        return;
+      }
+      
+      list.innerHTML = bookmarks.map(b => `
+        <div class="card">
+          <div class="card-actions">
+            <button class="btn-icon" onclick="toggleBookmark(${b.chapter}, ${b.verse})">❌ Remove</button>
+          </div>
+          <div class="verse-ref">Chapter ${b.chapter}, Verse ${b.verse}</div>
+          <div class="verse-translation">"${b.translation}"</div>
+          <div class="insight-box">
+            <div class="insight-title">${b.insight}</div>
+          </div>
+        </div>
+      `).join('');
+    }
   </script>
 </body>
 </html>

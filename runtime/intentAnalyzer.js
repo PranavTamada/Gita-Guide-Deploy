@@ -437,6 +437,62 @@ const SEARCH_BIAS_PRESETS = {
 };
 
 // ---------------------------------------------------------------------------
+// LAYER 0 — Query Mode Detection
+// Determines whether this is an emotional query, an informational/philosophical
+// query, or an action-guidance query. Runs before emotion scoring.
+// ---------------------------------------------------------------------------
+
+const INFORMATIONAL_PATTERNS = [
+  /\bwhat (is|are|does|did|was)\b/i,
+  /\bwho (is|was|are)\b/i,
+  /\bexplain\b/i,
+  /\bdefine\b/i,
+  /\btell me (about|what|how|why)\b/i,
+  /\bhow does\b/i,
+  /\bwhat does the (gita|bhagavad|scripture|vedas?)\b/i,
+  /\bhow (many|much)\b/i,
+  /\bwhat is (karma|dharma|moksha|atma|yoga|vedanta|ahimsa|samsara|brahman)\b/i,
+  /\bwho is (krishna|arjuna|vyasa|duryodhana|bhisma)\b/i,
+  /\bwhat chapter\b/i,
+  /\bwhich verse\b/i,
+  /\bsummary of\b/i,
+  /\bdifference between\b/i
+];
+
+/**
+ * Layer 0: Detect the broad query mode.
+ * "emotional"      → user is suffering / seeking support
+ * "informational"  → user is curious / studying
+ * "action"         → user needs a decision / next step
+ */
+function detectQueryMode(query, emotionScores, frameSignal) {
+  // Strong emotional frame → definitely emotional
+  if (frameSignal === "emotional_support") return "emotional";
+  // High-confidence emotion score → emotional
+  if (emotionScores.length > 0 && emotionScores[0].score >= 0.7) return "emotional";
+  // Explicit action framing → action
+  if (frameSignal === "action_guidance") return "action";
+  // Informational patterns → informational
+  if (INFORMATIONAL_PATTERNS.some(re => re.test(query))) return "informational";
+  // Philosophical seeking without emotional signal → informational
+  if (frameSignal === "philosophical_seeking") return "informational";
+  // Very weak emotion → informational
+  if (emotionScores.length === 0 || (emotionScores[0] && emotionScores[0].score < 0.45)) {
+    return "informational";
+  }
+  return "emotional";
+}
+
+// Negation tokens — if found in a 35-char window before a phrase match,
+// the match weight is reduced by 90%.
+const NEGATION_TOKENS = [
+  "not ", "never ", "no longer", "don't feel", "do not feel",
+  "doesn't feel", "didn't feel", "stopped being", "stopped feeling",
+  "no more", "without feeling", "free from", "overcome", "past the",
+  "used to feel", "used to be"
+];
+
+// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
@@ -456,12 +512,19 @@ function tokenize(query) {
 /**
  * Match query text against a flat phrases list.
  * Returns the highest-weighted match weight, or 0 if none.
+ * Respects negation: if a negation token precedes the phrase, weight is near-zero.
  */
 function matchPhrases(queryLower, phraseList) {
   let best = 0;
   for (const [phrase, weight] of phraseList) {
-    if (queryLower.includes(phrase)) {
-      if (weight > best) best = weight;
+    const idx = queryLower.indexOf(phrase);
+    if (idx !== -1) {
+      // Check for negation in the 35-char window immediately before the match
+      const windowStart = Math.max(0, idx - 35);
+      const preWindow = queryLower.slice(windowStart, idx);
+      const isNegated = NEGATION_TOKENS.some(neg => preWindow.includes(neg));
+      const effectiveWeight = isNegated ? weight * 0.08 : weight;
+      if (effectiveWeight > best) best = effectiveWeight;
     }
   }
   return best;
@@ -599,6 +662,7 @@ export function analyzeIntent(query) {
   const raw = String(query || "").trim();
   const queryLower = raw.toLowerCase();
   const queryKeywords = tokenize(raw);
+  const wordCount = raw.split(/\s+/).filter(Boolean).length;
 
   // --- Layer 1: Frame detection (fast, regex-based) ---
   const frameSignal = detectFrame(raw);
@@ -620,6 +684,17 @@ export function analyzeIntent(query) {
   if (frameSignal === "emotional_support" && emotionConfidence < 0.6) {
     emotionConfidence = Math.min(emotionConfidence + 0.15, 1.0);
   }
+
+  // Layer 1.5 — Query length confidence scaling
+  // Very short queries are likely informational; long emotional writing boosts confidence
+  if (wordCount < 6) {
+    emotionConfidence = Math.max(emotionConfidence * 0.65, 0.2);
+  } else if (wordCount > 40) {
+    emotionConfidence = Math.min(emotionConfidence * 1.2, 1.0);
+  }
+
+  // --- Layer 0: Query mode (must run after emotion scores are known) ---
+  const queryMode = detectQueryMode(raw, emotionScores, frameSignal);
 
   // --- Layer 3: Situation scoring ---
   const situationMatch = scoreSituations(queryLower);
@@ -655,30 +730,29 @@ export function analyzeIntent(query) {
     searchBias.vectorWeight = Math.max(searchBias.vectorWeight - boost, 0.15);
   }
 
-  // Always normalize unconditionally after all boosts — avoids float equality trap
-  // and ensures any rounding below operates on a clean ratio.
+  // Always normalize unconditionally after all boosts
   const _sum = searchBias.vectorWeight + searchBias.emotionWeight +
                searchBias.lifeSituationWeight + searchBias.keywordsWeight;
   const _factor = 1.0 / _sum;
   searchBias.vectorWeight        = Math.round(searchBias.vectorWeight        * _factor * 1000) / 1000;
   searchBias.emotionWeight       = Math.round(searchBias.emotionWeight       * _factor * 1000) / 1000;
   searchBias.lifeSituationWeight = Math.round(searchBias.lifeSituationWeight * _factor * 1000) / 1000;
-  // Derive keywords from remainder to guarantee exact sum of 1.000
   searchBias.keywordsWeight = Math.round(
     (1.0 - searchBias.vectorWeight - searchBias.emotionWeight - searchBias.lifeSituationWeight) * 1000
   ) / 1000;
 
   console.log("[intentAnalyzer]", JSON.stringify({
+    query_mode: queryMode,
     emotion,
     emotion_confidence: Math.round(emotionConfidence * 100) / 100,
     emotion_runner_up: runnerUp?.emotion || null,
     situation,
     intent_type: intentType,
-    frame_signal: frameSignal,
-    search_bias: searchBias
+    word_count: wordCount
   }));
 
   return {
+    query_mode: queryMode,
     emotion,
     emotion_confidence: Math.round(emotionConfidence * 100) / 100,
     emotion_runner_up: runnerUp ? runnerUp.emotion : null,

@@ -3,12 +3,53 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { vectorStore } from "./vectorStore.js";
 
-const versesDataPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '../data/verses.json')
+const __retrieval_dir = path.dirname(fileURLToPath(import.meta.url));
+const versesDataPath = path.join(__retrieval_dir, '../data/verses.json');
 
 const data = JSON.parse(fs.readFileSync(versesDataPath, "utf-8"));
 const verseMap = new Map(
   data.map(verse => [`${verse.chapter}-${verse.verse}`, verse])
 );
+
+// ---------------------------------------------------------------------------
+// Chapter-arc zones (2.3)
+// Gita's 18 chapters fall into three broad thematic zones.
+// Diversification prefers one result from each zone.
+// ---------------------------------------------------------------------------
+const CHAPTER_ZONES = {
+  karma:    new Set([1, 2, 3, 4, 5, 6]),      // Karma Yoga / duty / action
+  devotion: new Set([7, 8, 9, 10, 11, 12]),   // Bhakti / divine knowledge
+  knowledge: new Set([13, 14, 15, 16, 17, 18]) // Jnana / renunciation
+};
+
+function chapterZone(chapter) {
+  for (const [zone, chaps] of Object.entries(CHAPTER_ZONES)) {
+    if (chaps.has(chapter)) return zone;
+  }
+  return "other";
+}
+
+// ---------------------------------------------------------------------------
+// Simple query result cache (2.4)
+// ---------------------------------------------------------------------------
+const CACHE_MAX = 100;
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const _queryCache = new Map(); // key: `${query}|${topK}` → { ts, results }
+
+function cacheGet(key) {
+  const entry = _queryCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL_MS) { _queryCache.delete(key); return null; }
+  return entry.results;
+}
+
+function cacheSet(key, results) {
+  if (_queryCache.size >= CACHE_MAX) {
+    // Evict the oldest entry
+    _queryCache.delete(_queryCache.keys().next().value);
+  }
+  _queryCache.set(key, { ts: Date.now(), results });
+}
 
 let knowledgeGraph = null;
 
@@ -469,49 +510,32 @@ function deduplicateResults(results, similarityThreshold = 0.95) {
  * Ensure diverse results across different chapters/topics
  */
 function diversifyResults(results, topK = 3) {
-  if (results.length <= topK) {
-    return results.slice(0, topK);
-  }
+  if (results.length <= topK) return results.slice(0, topK);
 
-  // For large candidate pools (e.g. topK=9 for KG re-ranking), skip diversity
-  // filtering so the KG stage receives the highest-scored candidates unfiltered.
-  // Diversity is only meaningful for the final small set shown to the user.
-  if (topK >= 6) {
-    return results.slice(0, topK);
-  }
+  // For large pools (KG re-ranking): just return top by score
+  if (topK >= 6) return results.slice(0, topK);
 
   const diverse = [];
-  const chaptersUsed = new Set();
-  const emotionsUsed = new Set();
-  const seenIds = new Set();
+  const zonesUsed = new Set();
+  const seenIds   = new Set();
 
-  // First pass: prioritize variety in chapters and emotions
+  // First pass: prefer one result per chapter-arc zone (2.3)
   for (const result of results) {
     if (diverse.length >= topK) break;
-
-    const hasNewChapter = !chaptersUsed.has(result.chapter);
-    const hasNewEmotion =
-      result.emotion_tags.length === 0 ||
-      !emotionsUsed.has(result.emotion_tags[0]);
-
-    if (hasNewChapter || hasNewEmotion || diverse.length < 1) {
+    const zone = chapterZone(result.chapter);
+    if (!zonesUsed.has(zone) || diverse.length < 1) {
       diverse.push(result);
       seenIds.add(result.id);
-      chaptersUsed.add(result.chapter);
-      if (result.emotion_tags.length > 0) {
-        emotionsUsed.add(result.emotion_tags[0]);
-      }
+      zonesUsed.add(zone);
     }
   }
 
-  // Second pass: fill remaining slots with highest scoring verses
-  if (diverse.length < topK) {
-    for (const result of results) {
-      if (diverse.length >= topK) break;
-      if (!seenIds.has(result.id)) {
-        diverse.push(result);
-        seenIds.add(result.id);
-      }
+  // Second pass: fill remaining with highest-scoring unseen verses
+  for (const result of results) {
+    if (diverse.length >= topK) break;
+    if (!seenIds.has(result.id)) {
+      diverse.push(result);
+      seenIds.add(result.id);
     }
   }
 
@@ -529,6 +553,14 @@ function diversifyResults(results, topK = 3) {
  *   to inject canonical labels as extra metadata scoring terms.
  */
 export async function getTopMatches(query, topK = 3, intentBias = null, intentLabels = null) {
+  // Cache check (2.4)
+  const cacheKey = `${query}|${topK}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) {
+    console.log("[retrieval] cache_hit", { query: query.slice(0, 40) });
+    return cached;
+  }
+
   try {
     // Initialize vector store if needed
     if (!vectorStore.isBuilt) {
@@ -639,7 +671,7 @@ export async function getTopMatches(query, topK = 3, intentBias = null, intentLa
 
     // 6. Diversify results (passthrough for topK >= 6)
     const diverse = diversifyResults(deduplicated, topK);
-
+    cacheSet(cacheKey, diverse);
     return diverse;
   } catch (error) {
     console.error("Hybrid retrieval error:", error);
