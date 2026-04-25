@@ -128,6 +128,24 @@ function getAdaptiveWeights(queryType, classificationScores) {
   return normalizeWeights(adaptive);
 }
 
+/**
+ * Translate intent-analyzer searchBias to internal weight schema,
+ * then normalize. This enables field-level FAISS switching driven
+ * by the intent understanding component.
+ *
+ * @param {object} bias - { vectorWeight, emotionWeight, lifeSituationWeight, keywordsWeight }
+ * @returns {object} Internal normalized weights
+ */
+function weightsFromBias(bias) {
+  if (!bias || typeof bias !== "object") return null;
+  return normalizeWeights({
+    vector:        bias.vectorWeight        ?? WEIGHT_BASE.vector,
+    emotion:       bias.emotionWeight       ?? WEIGHT_BASE.emotion,
+    lifeSituation: bias.lifeSituationWeight ?? WEIGHT_BASE.lifeSituation,
+    keywords:      bias.keywordsWeight      ?? WEIGHT_BASE.keywords
+  });
+}
+
 function logScoringDecision(query, queryType, adaptiveWeights, classificationScores, mode) {
   console.log(
     "[retrieval] scoring_decision",
@@ -487,9 +505,16 @@ function diversifyResults(results, topK = 3) {
 }
 
 /**
- * Hybrid retrieval combining vector search with metadata scoring
+ * Hybrid retrieval combining vector search with metadata scoring.
+ *
+ * @param {string} query  - User query text
+ * @param {number} topK   - Number of results to return
+ * @param {object} [intentBias] - Optional field-level weight bias from intentAnalyzer.
+ *   Shape: { vectorWeight, emotionWeight, lifeSituationWeight, keywordsWeight }
+ *   When provided, bypasses the internal classifyQuery() heuristic and applies
+ *   intent-driven FAISS field weighting directly.
  */
-export async function getTopMatches(query, topK = 3) {
+export async function getTopMatches(query, topK = 3, intentBias = null) {
   try {
     // Initialize vector store if needed
     if (!vectorStore.isBuilt) {
@@ -497,14 +522,35 @@ export async function getTopMatches(query, topK = 3) {
         vectorStore.loadIndex();
       } catch {
         // Index not available, fall back to metadata-only search
-        return getMetadataOnlySearch(query, topK);
+        return getMetadataOnlySearch(query, topK, intentBias);
       }
     }
 
     const queryTerms = parseQuery(query);
-    const classification = classifyQuery(queryTerms);
-    const adaptiveWeights = getAdaptiveWeights(classification.type, classification.scores);
-    logScoringDecision(query, classification.type, adaptiveWeights, classification.scores, "hybrid");
+
+    // Determine adaptive weights: intent bias takes precedence over heuristics
+    let adaptiveWeights;
+    let queryType;
+    let classificationScores = { emotional: 0, situational: 0, philosophical: 0 };
+
+    const biasWeights = weightsFromBias(intentBias);
+    if (biasWeights) {
+      adaptiveWeights = biasWeights;
+      // Derive a human-readable query type label for logging
+      queryType = intentBias.emotionWeight >= 0.35
+        ? "intent:emotional"
+        : intentBias.keywordsWeight >= 0.20
+          ? "intent:philosophical"
+          : "intent:action";
+    } else {
+      const classification = classifyQuery(queryTerms);
+      adaptiveWeights = getAdaptiveWeights(classification.type, classification.scores);
+      queryType = classification.type;
+      classificationScores = classification.scores;
+    }
+
+    logScoringDecision(query, queryType, adaptiveWeights, classificationScores,
+      biasWeights ? "hybrid:intent_bias" : "hybrid:heuristic");
 
     // 1. Get vector similarity results (get more than topK for hybrid scoring)
     let vectorResults = [];
@@ -512,12 +558,12 @@ export async function getTopMatches(query, topK = 3) {
       vectorResults = await vectorStore.search(query, topK * 3);
     } catch (error) {
       console.error("Vector search error:", error);
-      return getMetadataOnlySearch(query, topK);
+      return getMetadataOnlySearch(query, topK, intentBias);
     }
 
     // 2. Create a map of verse IDs to vector scores
     const vectorScoreMap = new Map();
-    vectorResults.forEach((result, index) => {
+    vectorResults.forEach((result) => {
       const id = result.id;
       vectorScoreMap.set(id, result.similarity);
     });
@@ -526,7 +572,7 @@ export async function getTopMatches(query, topK = 3) {
     const hybridResults = data.map(verse => {
       const verseId = `${verse.chapter}-${verse.verse}`;
 
-      // Get vector similarity score (0.5 weight)
+      // Get vector similarity score
       const vectorScore = vectorScoreMap.get(verseId) || 0;
 
       // Calculate metadata scores
@@ -541,7 +587,7 @@ export async function getTopMatches(query, topK = 3) {
         lifeSituationScore,
         keywordScore,
         adaptiveWeights,
-        classification.type
+        queryType
       );
 
       return {
@@ -559,7 +605,7 @@ export async function getTopMatches(query, topK = 3) {
 
     // 4. Filter and sort results
     const filteredResults = hybridResults
-      .filter(result => result.final_score > 0) // Only results with some match
+      .filter(result => result.final_score > 0)
       .sort((a, b) => b.final_score - a.final_score);
 
     // 5. Remove duplicates
@@ -571,19 +617,32 @@ export async function getTopMatches(query, topK = 3) {
     return diverse;
   } catch (error) {
     console.error("Hybrid retrieval error:", error);
-    // Fallback to metadata-only search
-    return getMetadataOnlySearch(query, topK);
+    return getMetadataOnlySearch(query, topK, intentBias);
   }
 }
 
 /**
  * Fallback: Metadata-only search (when vector store not available)
  */
-function getMetadataOnlySearch(query, topK = 3) {
+function getMetadataOnlySearch(query, topK = 3, intentBias = null) {
   const queryTerms = parseQuery(query);
-  const classification = classifyQuery(queryTerms);
-  const adaptiveWeights = getAdaptiveWeights(classification.type, classification.scores);
-  logScoringDecision(query, classification.type, adaptiveWeights, classification.scores, "metadata_only");
+
+  let adaptiveWeights;
+  let queryType;
+  let classificationScores = { emotional: 0, situational: 0, philosophical: 0 };
+
+  const biasWeights = weightsFromBias(intentBias);
+  if (biasWeights) {
+    adaptiveWeights = biasWeights;
+    queryType = "intent_bias:metadata_fallback";
+  } else {
+    const classification = classifyQuery(queryTerms);
+    adaptiveWeights = getAdaptiveWeights(classification.type, classification.scores);
+    queryType = classification.type;
+    classificationScores = classification.scores;
+  }
+
+  logScoringDecision(query, queryType, adaptiveWeights, classificationScores, "metadata_only");
 
   const results = data.map(verse => {
     const emotionScore = calculateEmotionScore(verse, queryTerms);
@@ -596,7 +655,7 @@ function getMetadataOnlySearch(query, topK = 3) {
       lifeSituationScore,
       keywordScore,
       adaptiveWeights,
-      classification.type
+      queryType
     );
 
     return {

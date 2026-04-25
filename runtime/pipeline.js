@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import { config as loadEnv } from "dotenv";
 import { getTopMatches, getConnectedVerses } from "./retrieval.js";
 import { generatePractice } from "./practiceGenerator.js";
+import { analyzeIntent } from "./intentAnalyzer.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,27 +28,23 @@ if (fs.existsSync(purportsDataPath)) {
 }
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
-const OLLAMA_MODEL = "mistral"; // the requested lightweight model
+const OLLAMA_MODEL = "tinyllama"; // the requested lightweight model
 
-const EMOTIONAL_TERMS = new Set([
-  "anxiety", "anxious", "fear", "afraid", "grief", "sad", "anger", "angry", "stress",
-  "pain", "guilt", "lonely", "hopeless", "confused", "hurt", "peace", "calm"
-]);
-
-const SITUATIONAL_TERMS = new Set([
-  "job", "career", "work", "business", "money", "debt", "family", "marriage",
-  "relationship", "health", "exam", "study", "decision", "conflict", "failure",
-  "success", "leadership", "responsibility", "loss", "uncertainty"
-]);
-
+// emotionMap is used to humanise the emotion label in fallback connection strings
 const emotionMap = {
-  anxious: "anxiety",
-  angry: "anger",
-  sad: "sadness",
-  confused: "confusion",
+  anxiety: "anxiety",
+  anger: "anger",
+  depression: "hopelessness",
+  grief: "grief",
   fear: "fear",
   seeking: "seeking",
-  grief: "grief"
+  envy: "envy",
+  understanding: "confusion",
+  pride: "pride",
+  greed: "greed",
+  compassion: "compassion",
+  peace: "peace",
+  hope: "hope"
 };
 
 const adviceTemplates = {
@@ -192,47 +189,10 @@ function safeTrim(value) {
   return (String(value || "")).trim();
 }
 
+// analyzeQuery is replaced by analyzeIntent (imported from intentAnalyzer.js).
+// Kept as a thin shim so any legacy internal references remain valid.
 function analyzeQuery(query) {
-  const qStr = safeTrim(query).toLowerCase();
-  const terms = qStr.split(/[^a-z0-9]+/);
-
-  let emotion = "seeking";
-  let situation = "general";
-  let core_struggle = "";
-
-  // Phrase matching rules
-  if (qStr.includes("future")) {
-    situation = "uncertainty about the future";
-  } else if (qStr.includes("don't know") || qStr.includes("do not know")) {
-    situation = "decision-making confusion";
-  } else if (qStr.includes("job") || qStr.includes("career")) {
-    situation = "career decision";
-  } else {
-    // Fallback to word matching for situation
-    for (const term of terms) {
-      if (term && SITUATIONAL_TERMS.has(term)) {
-        situation = term;
-        break;
-      }
-    }
-  }
-
-  // Emotion word matching
-  for (const term of terms) {
-    if (term && EMOTIONAL_TERMS.has(term)) {
-      emotion = term;
-      break;
-    }
-  }
-
-  // Generate natural core struggle
-  if (situation === "uncertainty about the future" || situation === "decision-making confusion" || situation === "career decision") {
-    core_struggle = `fear of making the wrong decision about the ${situation === "career decision" ? "career" : "future"}`;
-  } else {
-    core_struggle = `${emotion} regarding ${situation}`;
-  }
-
-  return { emotion, situation, core_struggle };
+  return analyzeIntent(query);
 }
 
 function clamp01(value) {
@@ -388,12 +348,17 @@ export async function runIntelligentPipeline(query) {
 
   logStage("start", { query });
 
-  // 1) Analyze query (Rule-based)
-  const understanding = analyzeQuery(query);
-  logStage("analyze_query", understanding);
+  // 1) Analyze query — deep intent understanding (intentAnalyzer.js)
+  const understanding = analyzeIntent(query);
+  logStage("analyze_intent", {
+    emotion: understanding.emotion,
+    emotion_confidence: understanding.emotion_confidence,
+    situation: understanding.situation,
+    intent_type: understanding.intent_type
+  });
 
-  // 2) Hybrid retrieval
-  const hybridCandidates = await getTopMatches(query, 9);
+  // 2) Hybrid retrieval — pass field-level FAISS bias from intent
+  const hybridCandidates = await getTopMatches(query, 9, understanding.search_bias);
   const topVerses = selectTopVersesWithKg(hybridCandidates, understanding.emotion, understanding.situation, 3);
   logStage("retrieval", {
     selected: topVerses.map(v => ({ id: v.id, score: v.final_hybrid_score }))
@@ -491,7 +456,14 @@ JSON FORMAT:
 
   // 5) Final Assembly
   const finalOutput = {
-    understanding,
+    understanding: {
+      emotion: understanding.emotion,
+      emotion_confidence: understanding.emotion_confidence,
+      emotion_runner_up: understanding.emotion_runner_up,
+      situation: understanding.situation,
+      core_struggle: understanding.core_struggle,
+      intent_type: understanding.intent_type
+    },
     guidance: guidanceResult.guidance,
     final_advice: guidanceResult.final_advice,
     practice

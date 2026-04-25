@@ -244,6 +244,7 @@
       display: flex;
       flex-wrap: wrap;
       gap: 0.5rem 1.5rem;
+      margin-bottom: 0.85rem;
     }
     .understand-item { display: flex; flex-direction: column; gap: 2px; }
     .understand-label {
@@ -258,6 +259,50 @@
       font-style: italic;
       font-size: 0.9rem;
       color: var(--text);
+    }
+
+    /* Intent badge */
+    .intent-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+      padding-top: 0.65rem;
+      border-top: 1px solid var(--border);
+    }
+    .intent-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      padding: 4px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(232,175,110,0.3);
+      background: var(--accent-glow);
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+    .confidence-chip {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .confidence-bar-wrap {
+      width: 60px;
+      height: 4px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .confidence-bar-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--accent-deep), var(--accent));
+      transition: width 0.4s ease;
     }
 
     /* Guidance cards */
@@ -494,12 +539,25 @@
       // 1. Understanding
       const u = data.understanding;
       if (u) {
+        // Intent type badge config
+        const intentConfig = {
+          emotional_support:    { icon: '💬', label: 'Emotional Support' },
+          philosophical_seeking:{ icon: '🔮', label: 'Philosophical Seeking' },
+          action_guidance:      { icon: '🎯', label: 'Action Guidance' }
+        };
+        const intent = intentConfig[u.intent_type] || { icon: '✦', label: u.intent_type || 'Seeking' };
+        const confPct = Math.round((u.emotion_confidence || 0) * 100);
+
         html += `<div class="understanding-card">
           <div class="section-label">Understanding</div>
           <div class="understanding-grid">
             ${u.emotion ? `<div class="understand-item"><span class="understand-label">Emotion</span><span class="understand-value">${esc(u.emotion)}</span></div>` : ''}
             ${u.situation ? `<div class="understand-item"><span class="understand-label">Situation</span><span class="understand-value">${esc(u.situation)}</span></div>` : ''}
             ${u.core_struggle ? `<div class="understand-item" style="flex:1;min-width:160px"><span class="understand-label">Core Struggle</span><span class="understand-value">${esc(u.core_struggle)}</span></div>` : ''}
+          </div>
+          <div class="intent-row">
+            <span class="intent-badge">${intent.icon} ${esc(intent.label)}</span>
+            ${confPct > 0 ? `<span class="confidence-chip">Emotion confidence <div class="confidence-bar-wrap"><div class="confidence-bar-fill" style="width:${confPct}%"></div></div> ${confPct}%</span>` : ''}
           </div>
         </div>`;
       }
