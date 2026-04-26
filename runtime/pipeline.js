@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 import { config as loadEnv } from "dotenv";
 import { getTopMatches, getConnectedVerses } from "./retrieval.js";
 import { generatePractice } from "./practiceGenerator.js";
-import { analyzeIntent } from "./intentAnalyzer.js";
+import { analyzeIntent } from "./llmIntentClassifier.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,7 +28,7 @@ if (fs.existsSync(purportsDataPath)) {
 }
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
-const OLLAMA_MODEL    = process.env.OLLAMA_MODEL    || "tinyllama";
+const OLLAMA_MODEL    = process.env.OLLAMA_MODEL    || "gemma:2b";
 const OLLAMA_TIMEOUT  = parseInt(process.env.OLLAMA_TIMEOUT_MS || "30000", 10);
 const TOP_K_RETRIEVAL = parseInt(process.env.TOP_K_RETRIEVAL   || "9",    10);
 const TOP_K_FINAL     = parseInt(process.env.TOP_K_FINAL       || "3",    10);
@@ -278,7 +278,7 @@ function enrichVerse(verse) {
 
   // Use purports data if available, else fallback
   const summary = purportDetails.summary || details.summary || "";
-  const core_idea = purportDetails.core_idea || details.core_idea || safeTrim(details.translation) || "Steady action with awareness.";
+  const core_idea = purportDetails.core_idea || details.core_idea || null;
 
   return {
     ...verse,
@@ -383,8 +383,8 @@ export async function runIntelligentPipeline(query) {
 
   logStage("start", { query });
 
-  // 1) Analyze query
-  const understanding = analyzeIntent(query);
+  // 1) Analyze query intent via LLM
+  const understanding = await analyzeIntent(query);
   logStage("analyze_intent", {
     query_mode:        understanding.query_mode,
     emotion:           understanding.emotion,

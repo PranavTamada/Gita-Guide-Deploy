@@ -85,6 +85,16 @@ const EMOTION_STRATEGIES = {
       "Based on that answer, do one thing in the next 10 minutes that moves you in that direction."
     ],
     purpose: "Seeking becomes fruitful when you stop searching broadly and take one directed step."
+  },
+  neutral: {
+    mode: "study",
+    label: "Steady Action",
+    defaultSteps: [
+      "Read the translated verse without trying to extract immediate answers. Just observe the principle.",
+      "Ask yourself: 'How does this ancient teaching apply to my current context?'",
+      "Take one calm, small step forward in whatever task or duty you are currently engaged in."
+    ],
+    purpose: "When the mind is neutral and calm, it is primed for deep absorption rather than reactive fixing."
   }
 };
 
@@ -204,7 +214,6 @@ function normalizeEmotion(raw) {
     angry: "anger", frustrated: "anger", furious: "anger", irritated: "anger",
     depressed: "depression", hopeless: "depression", numb: "depression", empty: "depression",
     curious: "seeking", searching: "seeking", questioning: "seeking",
-    // intentAnalyzer canonical names not present in EMOTION_STRATEGIES
     understanding: "confusion",   // "understanding" → confusion strategy
     clarity:       "seeking",      // clarity-seeker → focused inquiry
     realization:   "seeking",      // sudden realization → focused inquiry

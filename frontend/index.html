@@ -206,9 +206,6 @@
       ? 'http://localhost:3000' : '';
     
     let bookmarks = JSON.parse(localStorage.getItem('gita_bookmarks') || '[]');
-    if(localStorage.getItem('gita_onboarded')) {
-      document.getElementById('onboarding').style.display = 'none';
-    }
 
     const THEME_COLORS = {
       anxiety: "#7c9cc0", grief: "#9b8fbf", anger: "#c47a5a", 
@@ -288,7 +285,6 @@
       if (!query) return;
 
       localStorage.setItem('gita_onboarded', 'true');
-      document.getElementById('onboarding').style.display = 'none';
       
       input.disabled = true;
       btn.disabled = true;
@@ -335,7 +331,6 @@
           <div class="understand-grid">
             <div class="understand-item"><span>Query Mode</span><span>${understanding.query_mode === 'informational' ? 'Knowledge/Study' : 'Life Guidance'}</span></div>
             <div class="understand-item"><span>Emotion</span><span>${understanding.emotion}</span></div>
-            <div class="understand-item"><span>Situation</span><span>${understanding.situation}</span></div>
           </div>
           ${understanding.intent_type ? `<div class="intent-badge">${understanding.intent_type.replace('_', ' ')}</div>` : ''}
         </div>

@@ -217,7 +217,7 @@ const SITUATION_TAXONOMY = [
     phrases: [
       "future", "what will happen", "worried about", "scared about tomorrow",
       "upcoming", "don't know what lies ahead", "uncertainty", "uncertain about",
-      "what if", "afraid of what", "dreading"
+      "what if", "afraid of what", "dreading", "exam", "exams", "test", "interview", "results"
     ]
   },
   {
@@ -509,16 +509,14 @@ function tokenize(query) {
     .filter(t => t.length > 2 && !STOPWORDS.has(t));
 }
 
-/**
- * Match query text against a flat phrases list.
- * Returns the highest-weighted match weight, or 0 if none.
- * Respects negation: if a negation token precedes the phrase, weight is near-zero.
- */
 function matchPhrases(queryLower, phraseList) {
   let best = 0;
   for (const [phrase, weight] of phraseList) {
-    const idx = queryLower.indexOf(phrase);
-    if (idx !== -1) {
+    const escapedPhrase = phrase.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
+    const regex = new RegExp(`\\\\b${escapedPhrase}\\\\b`, 'i');
+    const match = regex.exec(queryLower);
+    if (match) {
+      const idx = match.index;
       // Check for negation in the 35-char window immediately before the match
       const windowStart = Math.max(0, idx - 35);
       const preWindow = queryLower.slice(windowStart, idx);
@@ -556,7 +554,9 @@ function scoreSituations(queryLower) {
   for (const { canonical, phrases } of SITUATION_TAXONOMY) {
     let count = 0;
     for (const phrase of phrases) {
-      if (queryLower.includes(phrase)) {
+      const escapedPhrase = phrase.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
+      const regex = new RegExp(`\\\\b${escapedPhrase}\\\\b`, 'i');
+      if (regex.test(queryLower)) {
         count += 1;
       }
     }

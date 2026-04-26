@@ -157,11 +157,11 @@ class VectorStore {
       const dimension = embeddings[0].length;
       const index = new faiss.IndexFlatL2(dimension);
 
-      // Convert embeddings to Float32Array and add to index
-      const data = new Float32Array(embeddings.length * dimension);
+      // Convert embeddings to flat Array and add to index
+      const data = [];
       for (let i = 0; i < embeddings.length; i++) {
         for (let j = 0; j < dimension; j++) {
-          data[i * dimension + j] = embeddings[i][j];
+          data.push(embeddings[i][j]);
         }
       }
 
