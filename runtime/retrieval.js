@@ -617,19 +617,13 @@ export async function getTopMatches(query, topK = 3, intentBias = null, intentLa
       return getMetadataOnlySearch(query, topK, intentBias, intentLabels);
     }
 
-    // 2. Create a map of verse IDs to vector scores
-    const vectorScoreMap = new Map();
-    vectorResults.forEach((result) => {
-      const id = result.id;
-      vectorScoreMap.set(id, result.similarity);
-    });
-
-    // 3. Combine vector scores with metadata scores
-    const hybridResults = data.map(verse => {
-      const verseId = `${verse.chapter}-${verse.verse}`;
+    // 2. Combine vector scores with metadata scores ONLY for vector candidates
+    const hybridResults = vectorResults.map(result => {
+      const verseId = result.id;
+      const verse = verseMap.get(verseId);
 
       // Get vector similarity score
-      const vectorScore = vectorScoreMap.get(verseId) || 0;
+      const vectorScore = result.similarity;
 
       // Calculate metadata scores
       const emotionScore = calculateEmotionScore(verse, queryTerms);

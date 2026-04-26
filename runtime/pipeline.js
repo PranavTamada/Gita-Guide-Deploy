@@ -522,11 +522,18 @@ JSON FORMAT:
   // 6) Deterministic fallback (built before LLM call)
   const fallbackGuidanceResult = {
     guidance: topVerses.map((v, index) => {
-      const connections = [
-        `This reduces ${emotionNoun} by shifting focus away from future worries.`,
-        `This helps you stay grounded instead of overthinking outcomes.`,
-        `This calms the mind by focusing on what you can control.`
-      ];
+      const isPositiveOrNeutral = ["peace", "clarity", "hope", "compassion", "realization", "neutral", "seeking"].includes(understanding.emotion);
+      const connections = isPositiveOrNeutral 
+        ? [
+            `This guides your seeking by offering a steady perspective.`,
+            `This provides a firm foundation for your next step.`,
+            `This brings clarity by focusing on what truly matters.`
+          ]
+        : [
+            `This reduces ${emotionNoun} by shifting focus away from future worries.`,
+            `This helps you stay grounded instead of overthinking outcomes.`,
+            `This calms the mind by focusing on what you can control.`
+          ];
       return {
         chapter:     v.chapter,
         verse:       v.verse,
