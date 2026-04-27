@@ -2,7 +2,6 @@ import fetch from "node-fetch"; // VERY IMPORTANT
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { config as loadEnv } from "dotenv";
 import { getTopMatches, getConnectedVerses } from "./retrieval.js";
 import { generatePractice } from "./practiceGenerator.js";
 import { analyzeIntent } from "./llmIntentClassifier.js";
@@ -28,10 +27,10 @@ if (fs.existsSync(purportsDataPath)) {
 }
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
-const OLLAMA_MODEL    = process.env.OLLAMA_MODEL    || "gemma:2b";
-const OLLAMA_TIMEOUT  = parseInt(process.env.OLLAMA_TIMEOUT_MS || "30000", 10);
-const TOP_K_RETRIEVAL = parseInt(process.env.TOP_K_RETRIEVAL   || "9",    10);
-const TOP_K_FINAL     = parseInt(process.env.TOP_K_FINAL       || "3",    10);
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.2:1b";
+const OLLAMA_TIMEOUT = parseInt(process.env.OLLAMA_TIMEOUT_MS || "120000", 10);
+const TOP_K_RETRIEVAL = parseInt(process.env.TOP_K_RETRIEVAL || "9", 10);
+const TOP_K_FINAL = parseInt(process.env.TOP_K_FINAL || "3", 10);
 
 // emotionMap is used to humanise the emotion label in fallback connection strings
 const emotionMap = {
@@ -47,25 +46,49 @@ const emotionMap = {
   greed: "greed",
   compassion: "compassion",
   peace: "peace",
-  hope: "hope"
+  hope: "hope",
+  lust: "lust",
+  confusion: "confusion",
+  demotivated: "demotivation",
+  discriminated: "injustice",
+  guilt: "guilt",
+  forgetfulness: "forgetfulness",
+  laziness: "laziness",
+  loneliness: "loneliness",
+  hopelessness: "hopelessness",
+  forgiveness: "forgiveness",
+  temptation: "temptation",
+  "uncontrolled mind": "mental instability"
 };
 const adviceTemplates = {
-  anxiety:     "Take one small action today without worrying about results",
-  fear:        "Name what you fear, then take one small action toward it",
-  anger:       "Pause and respond calmly instead of reacting instantly",
-  grief:       "Allow yourself to feel the loss, then do one kind thing for yourself",
-  depression:  "Pick the smallest possible task and complete it — momentum starts there",
-  envy:        "Redirect your energy inward: list one strength that is uniquely yours",
-  greed:       "Identify what you already have that is enough, and act from that place",
-  pride:       "Seek one honest piece of feedback today and sit with it",
-  compassion:  "Channel your care into one concrete act of service today",
-  peace:       "Protect your stillness by removing one unnecessary distraction today",
-  hope:        "Take one step today that your future self will thank you for",
-  clarity:     "Write down your clearest insight and act on it within the hour",
+  anxiety: "Take one small action today without worrying about results",
+  fear: "Name what you fear, then take one small action toward it",
+  anger: "Pause and respond calmly instead of reacting instantly",
+  grief: "Allow yourself to feel the loss, then do one kind thing for yourself",
+  depression: "Pick the smallest possible task and complete it — momentum starts there",
+  envy: "Redirect your energy inward: list one strength that is uniquely yours",
+  greed: "Identify what you already have that is enough, and act from that place",
+  pride: "Seek one honest piece of feedback today and sit with it",
+  compassion: "Channel your care into one concrete act of service today",
+  peace: "Protect your stillness by removing one unnecessary distraction today",
+  hope: "Take one step today that your future self will thank you for",
+  clarity: "Write down your clearest insight and act on it within the hour",
   understanding: "Choose one option and take the first step immediately",
   realization: "Anchor this realization with one concrete change in your daily routine",
-  seeking:     "Ask yourself what you are truly looking for, then take one directed step",
-  neutral:     "Take one calm step forward"
+  seeking: "Ask yourself what you are truly looking for, then take one directed step",
+  neutral: "Take one calm step forward",
+  lust: "Channel your desires into a constructive pursuit today",
+  confusion: "Write down what you know to be true, and start from there",
+  demotivated: "Do one small task without expecting any immediate reward",
+  discriminated: "Stand firm in your inner worth and perform your duty with dignity",
+  guilt: "Acknowledge the mistake, learn the lesson, and take a corrective step",
+  forgetfulness: "Pause to center your mind and remember your core purpose",
+  laziness: "Break your biggest task into a 5-minute action and start now",
+  loneliness: "Reach out to someone or connect with your inner spiritual presence",
+  hopelessness: "Focus entirely on today's duty, letting go of the distant future",
+  forgiveness: "Release one small resentment today to free your own mind",
+  temptation: "Observe the urge without acting on it for the next hour",
+  "uncontrolled mind": "Focus on your breathing for two minutes to steady your thoughts"
 };
 
 const insightVariants = {
@@ -129,7 +152,7 @@ const insightVariants = {
 function getFallbackInsight(verse, index) {
   // Verse context differentiation
   const chapter = Number(verse.chapter) || parseInt(String(verse.id || "0").split("-")[0], 10);
-  
+
   if (chapter === 2) {
     const options = insightVariants["action"];
     return options[index % options.length];
@@ -193,11 +216,11 @@ async function saveQuery(query, result) {
     history.push({
       query,
       timestamp: new Date().toISOString(),
-      query_mode:  result.understanding?.query_mode,
-      emotion:     result.understanding?.emotion,
-      situation:   result.understanding?.situation,
+      query_mode: result.understanding?.query_mode,
+      emotion: result.understanding?.emotion,
+      situation: result.understanding?.situation,
       intent_type: result.understanding?.intent_type,
-      verse_ids:   (result.guidance || []).map(g => `${g.chapter}:${g.verse}`)
+      verse_ids: (result.guidance || []).map(g => `${g.chapter}:${g.verse}`)
     });
     if (history.length > 50) history.shift();
     await fs.promises.writeFile(historyPath, JSON.stringify(history, null, 2));
@@ -333,10 +356,14 @@ function tryParseJson(text) {
 }
 
 async function callOllama(prompt) {
-  logStage("llama_call_request", { model: OLLAMA_MODEL });
+  logStage("llama_call_request", {
+    model: OLLAMA_MODEL,
+    base_url: OLLAMA_BASE_URL,
+    timeout_ms: OLLAMA_TIMEOUT
+  });
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  const timeoutId = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT);
 
   try {
     const res = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
@@ -370,7 +397,9 @@ async function callOllama(prompt) {
     return text;
   } catch (err) {
     clearTimeout(timeoutId);
-    const reason = err.name === "AbortError" ? "30s timeout exceeded" : err.message;
+    const reason = err.name === "AbortError"
+      ? `${OLLAMA_TIMEOUT}ms timeout exceeded`
+      : err.message;
     console.error("❌ Ollama Call Error:", reason);
     throw err; // Propagate error to trigger fallback
   }
@@ -386,11 +415,11 @@ export async function runIntelligentPipeline(query) {
   // 1) Analyze query intent via LLM
   const understanding = await analyzeIntent(query);
   logStage("analyze_intent", {
-    query_mode:        understanding.query_mode,
-    emotion:           understanding.emotion,
+    query_mode: understanding.query_mode,
+    emotion: understanding.emotion,
     emotion_confidence: understanding.emotion_confidence,
-    situation:         understanding.situation,
-    intent_type:       understanding.intent_type
+    situation: understanding.situation,
+    intent_type: understanding.intent_type
   });
 
   // 1b) Compound emotion bias blending (1.3)
@@ -399,9 +428,9 @@ export async function runIntelligentPipeline(query) {
   const biasToUse = { ...understanding.search_bias };
   if (understanding.emotion_runner_up && understanding.emotion_confidence < 0.85) {
     const BIAS_PRESETS = {
-      emotional_support:    { vectorWeight: 0.2,  emotionWeight: 0.5,  lifeSituationWeight: 0.25, keywordsWeight: 0.05 },
-      philosophical_seeking:{ vectorWeight: 0.45, emotionWeight: 0.2,  lifeSituationWeight: 0.25, keywordsWeight: 0.10 },
-      action_guidance:      { vectorWeight: 0.35, emotionWeight: 0.25, lifeSituationWeight: 0.30, keywordsWeight: 0.10 }
+      emotional_support: { vectorWeight: 0.2, emotionWeight: 0.5, lifeSituationWeight: 0.25, keywordsWeight: 0.05 },
+      philosophical_seeking: { vectorWeight: 0.45, emotionWeight: 0.2, lifeSituationWeight: 0.25, keywordsWeight: 0.10 },
+      action_guidance: { vectorWeight: 0.35, emotionWeight: 0.25, lifeSituationWeight: 0.30, keywordsWeight: 0.10 }
     };
     // Use philosophical seeking as proxy for the runner-up
     const runnerBias = BIAS_PRESETS["emotional_support"];
@@ -421,24 +450,24 @@ export async function runIntelligentPipeline(query) {
   // 3) Related verses from KG neighbors (3.5)
   const relatedVersesRaw = topVerses.length > 0
     ? getConnectedVerses(topVerses[0].id, 1)
-        .slice(0, 4)
-        .map(n => {
-          const details = verseDetailsMap.get(n.id) || {};
-          return {
-            id:          n.id,
-            chapter:     n.chapter,
-            verse:       n.verse,
-            translation: details.translation || n.translation || "",
-            connection_type: (n.connection?.shared_principles || n.connection?.shared_emotion_tags || [])[0] || "related"
-          };
-        })
+      .slice(0, 4)
+      .map(n => {
+        const details = verseDetailsMap.get(n.id) || {};
+        return {
+          id: n.id,
+          chapter: n.chapter,
+          verse: n.verse,
+          translation: details.translation || n.translation || "",
+          connection_type: (n.connection?.shared_principles || n.connection?.shared_emotion_tags || [])[0] || "related"
+        };
+      })
     : [];
 
   // 4) Session memory: last 2 prior queries/emotions for LLM context (3.4)
   const recentHistory = loadHistory().slice(-2);
   const sessionContext = recentHistory.length > 0
     ? `\nPrevious session context (for awareness only, do not repeat):\n` +
-      recentHistory.map(h => `- ${h.query} (emotion: ${h.emotion})`).join("\n")
+    recentHistory.map(h => `- ${h.query} (emotion: ${h.emotion})`).join("\n")
     : "";
 
   // ──────────────────────────────────────────────────────────────
@@ -451,31 +480,31 @@ export async function runIntelligentPipeline(query) {
     const verseStudy = topVerses.map(v => {
       const purport = purportDetailsMap.get(v.id) || {};
       return {
-        chapter:        v.chapter,
-        verse:          v.verse,
-        translation:    v.translation || "",
+        chapter: v.chapter,
+        verse: v.verse,
+        translation: v.translation || "",
         purport_excerpt: purport.summary || v.summary || "",
-        core_idea:      v.core_idea || "",
-        principles:     v.principles || []
+        core_idea: v.core_idea || "",
+        principles: v.principles || []
       };
     });
 
     const informationalOutput = {
       understanding: {
-        query_mode:         "informational",
-        emotion:            understanding.emotion,
+        query_mode: "informational",
+        emotion: understanding.emotion,
         emotion_confidence: understanding.emotion_confidence,
-        situation:          understanding.situation,
-        intent_type:        understanding.intent_type
+        situation: understanding.situation,
+        intent_type: understanding.intent_type
       },
-      mode:    "informational",
-      verses:  verseStudy,
+      mode: "informational",
+      verses: verseStudy,
       guidance: verseStudy.map((v, i) => ({
-        chapter:     v.chapter,
-        verse:       v.verse,
+        chapter: v.chapter,
+        verse: v.verse,
         translation: v.translation,
-        insight:     v.core_idea || getFallbackInsight(v, i),
-        connection:  v.purport_excerpt || `Chapter ${v.chapter} explores this teaching in depth.`
+        insight: v.core_idea || getFallbackInsight(v, i),
+        connection: v.purport_excerpt || `Chapter ${v.chapter} explores this teaching in depth.`
       })),
       final_advice: "Take time to study these verses. Wisdom deepens with reflection.",
       related_verses: relatedVersesRaw
@@ -498,48 +527,51 @@ export async function runIntelligentPipeline(query) {
   const emotionNoun = emotionMap[understanding.emotion] || understanding.emotion;
   const prompt = `You are a Bhagavad Gita assistant that gives clear, practical guidance.
 
-User Query: ${query}
-Emotion: ${understanding.emotion}
-Situation: ${understanding.situation}${sessionContext}
+                User Query: ${query}
+                Emotion: ${understanding.emotion}
+                Situation: ${understanding.situation}${sessionContext}
 
-Verses:
-${topVerses.map(v => `${v.chapter}:${v.verse} - ${v.translation}`).join("\n")}
+                Verses:
+                ${topVerses.map(v => `${v.chapter}:${v.verse} - ${v.translation}`).join("\n")}
 
-Task:
-- For EACH verse: Give 1 short insight (max 15 words) and 1 connection to user situation
-- Give 1 final practical advice (max 20 words)
+                Task:
+                - For EACH verse: Give 1 short insight (max 15 words) and 1 connection to user situation
+                - Give 1 final practical advice (max 20 words)
 
-STRICT RULES: Output ONLY valid JSON. No text outside JSON.
-
-JSON FORMAT:
+                Example Output:
 {
   "guidance": [
-    { "chapter": number, "verse": number, "insight": "...", "connection": "..." }
+    {
+      "chapter": 2,
+      "verse": 47,
+      "insight": "Focus on effort, not results",
+      "connection": "Your anxiety comes from worrying about future outcomes"
+    }
   ],
-  "final_advice": "..."
+  "final_advice": "Focus on small actions today, not uncertain future results"
 }`;
 
   // 6) Deterministic fallback (built before LLM call)
   const fallbackGuidanceResult = {
     guidance: topVerses.map((v, index) => {
       const isPositiveOrNeutral = ["peace", "clarity", "hope", "compassion", "realization", "neutral", "seeking"].includes(understanding.emotion);
-      const connections = isPositiveOrNeutral 
+      const connections = isPositiveOrNeutral
         ? [
-            `This guides your seeking by offering a steady perspective.`,
-            `This provides a firm foundation for your next step.`,
-            `This brings clarity by focusing on what truly matters.`
-          ]
+          `This guides your seeking by offering a steady perspective.`,
+          `This provides a firm foundation for your next step.`,
+          `This brings clarity by focusing on what truly matters.`
+        ]
         : [
-            `This reduces ${emotionNoun} by shifting focus away from future worries.`,
-            `This helps you stay grounded instead of overthinking outcomes.`,
-            `This calms the mind by focusing on what you can control.`
-          ];
+          `This reduces ${emotionNoun} by shifting focus away from future worries.`,
+          `This helps you stay grounded instead of overthinking outcomes.`,
+          `This calms the mind by focusing on what you can control.`
+        ];
       return {
-        chapter:     v.chapter,
-        verse:       v.verse,
+        chapter: v.chapter,
+        verse: v.verse,
         translation: v.translation || "",
-        insight:     getFallbackInsight(v, index),
-        connection:  connections[index % connections.length]
+        insight: getFallbackInsight(v, index),
+        connection: connections[index % connections.length]
       };
     }),
     final_advice: adviceTemplates[understanding.emotion] || "Take one calm step forward"
@@ -588,30 +620,30 @@ JSON FORMAT:
   // 8) Practice generation
   logStage("practice_generation", { mode: "local" });
   const allPrinciples = topVerses.reduce((acc, v) => acc.concat(v.principles || []), []);
-  const allCoreIdeas  = topVerses.map(v => v.core_idea).filter(Boolean);
+  const allCoreIdeas = topVerses.map(v => v.core_idea).filter(Boolean);
 
   const practice = generatePractice({
-    emotion:      understanding.emotion,
-    situation:    understanding.situation,
+    emotion: understanding.emotion,
+    situation: understanding.situation,
     core_struggle: understanding.core_struggle,
-    principles:   allPrinciples,
-    core_idea:    allCoreIdeas[0]
+    principles: allPrinciples,
+    core_idea: allCoreIdeas[0]
   });
 
   // 9) Final Assembly
   const finalOutput = {
     understanding: {
-      query_mode:         understanding.query_mode,
-      emotion:            understanding.emotion,
+      query_mode: understanding.query_mode,
+      emotion: understanding.emotion,
       emotion_confidence: understanding.emotion_confidence,
-      emotion_runner_up:  understanding.emotion_runner_up,
-      situation:          understanding.situation,
-      core_struggle:      understanding.core_struggle,
-      intent_type:        understanding.intent_type
+      emotion_runner_up: understanding.emotion_runner_up,
+      situation: understanding.situation,
+      core_struggle: understanding.core_struggle,
+      intent_type: understanding.intent_type
     },
-    mode:           "emotional",
-    guidance:       guidanceResult.guidance,
-    final_advice:   guidanceResult.final_advice,
+    mode: "emotional",
+    guidance: guidanceResult.guidance,
+    final_advice: guidanceResult.final_advice,
     related_verses: relatedVersesRaw,
     practice
   };
@@ -621,7 +653,7 @@ JSON FORMAT:
   if (!fs.existsSync(path.join(projectRoot, "outputs"))) {
     fs.mkdirSync(path.join(projectRoot, "outputs"), { recursive: true });
   }
-  fs.promises.writeFile(outputPath, JSON.stringify(finalOutput, null, 2)).catch(() => {});
+  fs.promises.writeFile(outputPath, JSON.stringify(finalOutput, null, 2)).catch(() => { });
   saveQuery(query, finalOutput);
   appendRequestLog({
     ts: new Date().toISOString(), query_mode: understanding.query_mode,

@@ -5,6 +5,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import { runIntelligentPipeline } from "./runtime/pipeline.js";
 import { vectorStore } from "./runtime/vectorStore.js";
+import { generateAllDailyPractices } from "./runtime/practiceGenerator.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -75,6 +76,25 @@ app.post("/ask", rateLimiter, async (req, res) => {
     console.error(`[server] ❌ Pipeline error after ${elapsed}s:`, err.message);
     return res.status(500).json({
       error: "Something went wrong processing your query. Please try again."
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /daily-practices — daily practices for all emotions
+// ---------------------------------------------------------------------------
+app.get("/daily-practices", (_req, res) => {
+  try {
+    const practices = generateAllDailyPractices();
+    res.json({
+      success: true,
+      count: practices.length,
+      practices: practices
+    });
+  } catch (err) {
+    console.error("[server] ❌ Error generating daily practices:", err.message);
+    return res.status(500).json({
+      error: "Failed to generate daily practices."
     });
   }
 });

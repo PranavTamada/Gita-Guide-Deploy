@@ -400,7 +400,7 @@ export function getConnectedVerses(verseId, depth = 1) {
  * Parse query into terms
  */
 function parseQuery(query) {
-  return query
+  return String(query || "")
     .toLowerCase()
     .split(/\s+/)
     .filter(term => term.length > 2); // Filter out short words
@@ -553,11 +553,18 @@ function diversifyResults(results, topK = 3) {
  *   to inject canonical labels as extra metadata scoring terms.
  */
 export async function getTopMatches(query, topK = 3, intentBias = null, intentLabels = null) {
+  const safeQuery = String(query || "").trim();
+  const safeTopK = Number.isFinite(topK) ? Math.max(1, Math.floor(topK)) : 3;
+
+  if (!safeQuery) {
+    return getMetadataOnlySearch("", safeTopK, intentBias, intentLabels);
+  }
+
   // Cache check (2.4)
-  const cacheKey = `${query}|${topK}`;
+  const cacheKey = `${safeQuery}|${safeTopK}`;
   const cached = cacheGet(cacheKey);
   if (cached) {
-    console.log("[retrieval] cache_hit", { query: query.slice(0, 40) });
+    console.log("[retrieval] cache_hit", { query: safeQuery.slice(0, 40) });
     return cached;
   }
 
@@ -568,14 +575,14 @@ export async function getTopMatches(query, topK = 3, intentBias = null, intentLa
         vectorStore.loadIndex();
       } catch {
         // Index not available, fall back to metadata-only search
-        return getMetadataOnlySearch(query, topK, intentBias, intentLabels);
+        return getMetadataOnlySearch(safeQuery, safeTopK, intentBias, intentLabels);
       }
     }
 
     // Build query terms: raw user words PLUS canonical intent labels.
     // This ensures "anxious" triggers "anxiety" in verse emotion_tags, and
     // "I feel lost" triggers "search for meaning" in verse life_situations.
-    const rawTerms = parseQuery(query);
+    const rawTerms = parseQuery(safeQuery);
     const labelTerms = intentLabels
       ? [
           ...(intentLabels.emotion ? parseQuery(intentLabels.emotion) : []),
@@ -605,16 +612,16 @@ export async function getTopMatches(query, topK = 3, intentBias = null, intentLa
       classificationScores = classification.scores;
     }
 
-    logScoringDecision(query, queryType, adaptiveWeights, classificationScores,
+    logScoringDecision(safeQuery, queryType, adaptiveWeights, classificationScores,
       biasWeights ? "hybrid:intent_bias" : "hybrid:heuristic");
 
     // 1. Get vector similarity results (get more than topK for hybrid scoring)
     let vectorResults = [];
     try {
-      vectorResults = await vectorStore.search(query, topK * 3);
+      vectorResults = await vectorStore.search(safeQuery, safeTopK * 3);
     } catch (error) {
       console.error("Vector search error:", error);
-      return getMetadataOnlySearch(query, topK, intentBias, intentLabels);
+      return getMetadataOnlySearch(safeQuery, safeTopK, intentBias, intentLabels);
     }
 
     // 2. Combine vector scores with metadata scores ONLY for vector candidates
@@ -658,18 +665,18 @@ export async function getTopMatches(query, topK = 3, intentBias = null, intentLa
     const sortedResults = hybridResults.sort((a, b) => b.final_score - a.final_score);
     const positiveResults = sortedResults.filter(r => r.final_score > 0);
     // Guarantee at least topK candidates for the KG re-ranking stage
-    const resultPool = positiveResults.length >= topK ? positiveResults : sortedResults;
+    const resultPool = positiveResults.length >= safeTopK ? positiveResults : sortedResults;
 
     // 5. Remove duplicates
     const deduplicated = deduplicateResults(resultPool);
 
     // 6. Diversify results (passthrough for topK >= 6)
-    const diverse = diversifyResults(deduplicated, topK);
+    const diverse = diversifyResults(deduplicated, safeTopK);
     cacheSet(cacheKey, diverse);
     return diverse;
   } catch (error) {
     console.error("Hybrid retrieval error:", error);
-    return getMetadataOnlySearch(query, topK, intentBias, intentLabels);
+    return getMetadataOnlySearch(safeQuery, safeTopK, intentBias, intentLabels);
   }
 }
 

@@ -13,6 +13,21 @@
  *   { practice_title, duration, steps[], purpose }
  */
 
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const versesDataPath = path.join(__dirname, "..", "data", "verses.json");
+
+let VERSES_DATA = [];
+try {
+  VERSES_DATA = JSON.parse(fs.readFileSync(versesDataPath, "utf-8"));
+} catch {
+  VERSES_DATA = [];
+}
+
 /* ── Emotion → practice strategy map ─────────────────────────── */
 
 const EMOTION_STRATEGIES = {
@@ -95,6 +110,86 @@ const EMOTION_STRATEGIES = {
       "Take one calm, small step forward in whatever task or duty you are currently engaged in."
     ],
     purpose: "When the mind is neutral and calm, it is primed for deep absorption rather than reactive fixing."
+  },
+  lust: {
+    mode: "pause",
+    label: "Desire & Redirection",
+    defaultSteps: [
+      "When the desire arises, do not fight it or indulge it. Simply observe it as a temporary wave.",
+      "Ask yourself: 'Will acting on this bring lasting peace, or only temporary pleasure and later regret?'",
+      "Redirect your physical energy immediately: go for a walk, do a chore, or engage in a demanding task."
+    ],
+    purpose: "Lust clouds judgment and pulls you away from your true self. Observation and redirection strip its power."
+  },
+  guilt: {
+    mode: "reflection",
+    label: "Atonement & Action",
+    defaultSteps: [
+      "Write down the mistake you made without defending yourself. Accept full responsibility.",
+      "Identify one concrete way to make amends or ensure you do not repeat the mistake.",
+      "Forgive yourself. Guilt is only useful until the lesson is learned; after that, it is an obstacle."
+    ],
+    purpose: "Feeling sinful or guilty should lead to correction, not self-destruction. This practice moves you from regret to right action."
+  },
+  laziness: {
+    mode: "action",
+    label: "Breaking Inertia",
+    defaultSteps: [
+      "Do not wait for motivation. Motivation follows action.",
+      "Pick a task you are avoiding. Set a timer for 5 minutes and start it. You can stop after 5 minutes if you want.",
+      "Notice how starting breaks the heavy energy of inertia."
+    ],
+    purpose: "Laziness (Tamas) thrives on stillness. A small, forced action is the only way to break its hold."
+  },
+  loneliness: {
+    mode: "connection",
+    label: "Spiritual Connection",
+    defaultSteps: [
+      "Sit quietly and remember that the Supreme is always within your heart. You are never truly alone.",
+      "Shift your focus outward: who else might be suffering right now?",
+      "Take one action to serve or connect with someone else, even a small message or gesture."
+    ],
+    purpose: "Loneliness focuses on the isolated ego. Connecting to the divine within, or serving others, restores the sense of unity."
+  },
+  forgiveness: {
+    mode: "release",
+    label: "Releasing Resentment",
+    defaultSteps: [
+      "Acknowledge the pain caused by the other person without minimizing it.",
+      "Recognize that holding onto this anger is drinking poison and expecting them to suffer.",
+      "Say out loud: 'I release you to your own karma. I choose peace for myself.'"
+    ],
+    purpose: "Forgiveness is not about approving of the wrong; it is about freeing yourself from the emotional bond of resentment."
+  },
+  "uncontrolled mind": {
+    mode: "focus",
+    label: "Mind Taming",
+    defaultSteps: [
+      "Sit with your spine straight. Close your eyes.",
+      "Count your breaths from 1 to 10. If your mind wanders (and it will), start over at 1 without frustration.",
+      "Do this for 3 minutes. The goal is not a blank mind, but practicing the return of focus."
+    ],
+    purpose: "An uncontrolled mind is like the wind. Repeated, gentle redirection is the only way to tame it."
+  },
+  discriminated: {
+    mode: "identity",
+    label: "True Identity",
+    defaultSteps: [
+      "Remind yourself: you are not your body, your caste, your race, or your social standing. You are the eternal soul.",
+      "Write down one way this external judgment does not define your true spiritual worth.",
+      "Respond to ignorance with dignified silence or steady action, not reactive anger."
+    ],
+    purpose: "Discrimination attacks the bodily identity. Re-anchoring in your spiritual identity provides unshakeable dignity."
+  },
+  forgetfulness: {
+    mode: "remembrance",
+    label: "Daily Remembrance",
+    defaultSteps: [
+      "Write down the single most important spiritual or life truth you keep forgetting.",
+      "Place this note somewhere you will see it immediately upon waking up.",
+      "Read it aloud once every morning."
+    ],
+    purpose: "The material world is designed to make us forget our higher purpose. Conscious daily reminders combat this."
   }
 };
 
@@ -212,7 +307,7 @@ function normalizeEmotion(raw) {
     confused: "confusion", lost: "confusion", uncertain: "confusion", indecisive: "confusion",
     sad: "grief", grieving: "grief", mourning: "grief", heartbroken: "grief",
     angry: "anger", frustrated: "anger", furious: "anger", irritated: "anger",
-    depressed: "depression", hopeless: "depression", numb: "depression", empty: "depression",
+    depressed: "depression", hopeless: "hopelessness", numb: "depression", empty: "depression",
     curious: "seeking", searching: "seeking", questioning: "seeking",
     understanding: "confusion",   // "understanding" → confusion strategy
     clarity:       "seeking",      // clarity-seeker → focused inquiry
@@ -220,9 +315,12 @@ function normalizeEmotion(raw) {
     hope:          "seeking",      // hopeful → focused inquiry (closest fit)
     peace:         "seeking",      // seeking peace → focused inquiry
     envy:          "anger",        // envy is anger-adjacent
-    greed:         "depression",   // greed/craving → small-momentum reset
+    greed:         "lust",         // greed/craving → lust strategy works
     pride:         "anger",        // pride/arrogance → pause & control
-    compassion:    "seeking"       // compassion → focused outward inquiry
+    compassion:    "seeking",      // compassion → focused outward inquiry
+    demotivated:   "laziness",
+    sinful:        "guilt",
+    temptation:    "lust"
   };
 
   return aliases[e] || (EMOTION_STRATEGIES[e] ? e : "seeking");
@@ -359,6 +457,196 @@ function capitalize(str) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
+/**
+ * Generate daily practices for all emotions.
+ * Each practice is anchored to an exact Bhagavad Gita verse text.
+ *
+ * @returns {Array} Array of practice objects { emotion, title, duration, steps, purpose, mode, label }
+ */
+export function generateAllDailyPractices() {
+  const allEmotions = getAllEmotionsFromVerses();
+  const practices = [];
+
+  for (const emotion of allEmotions) {
+    const verse = selectBestVerseForEmotion(emotion);
+    const strategy = EMOTION_STRATEGIES[normalizeEmotion(emotion)] || FALLBACK_STRATEGY;
+    const verseRef = verse ? `Chapter ${verse.chapter}, Verse ${verse.verse}` : "Bhagavad Gita";
+    const verseText = verse?.translation || "No verse text available.";
+    const simpleExplanation = buildSimpleExplanation(verse, emotion);
+    const simpleApplication = buildSimpleApplication(verse, emotion);
+
+    practices.push({
+      emotion,
+      title: `Daily Gita Practice for ${toTitleCaseEmotion(emotion)}`,
+      duration: "5-10 minutes",
+      steps: [
+        `Read ${verseRef} slowly one time.`,
+        `Practice line (exact Bhagavad Gita text): "${verseText}"`,
+        `Simple application for today: ${simpleApplication}`
+      ],
+      purpose: `This daily practice is taken directly from ${verseRef}.`,
+      mode: strategy.mode,
+      label: strategy.label,
+      color: getEmotionColor(emotion),
+      source_verse: verse
+        ? {
+            chapter: verse.chapter,
+            verse: verse.verse,
+            translation: verseText
+          }
+        : null,
+      gita_practice_text: verseText,
+      simple_explanation: simpleExplanation
+    });
+  }
+
+  return practices;
+}
+
+function getAllEmotionsFromVerses() {
+  const emotionSet = new Set();
+
+  for (const verse of VERSES_DATA) {
+    const tags = Array.isArray(verse?.emotion_tags) ? verse.emotion_tags : [];
+    for (const tag of tags) {
+      if (typeof tag === "string" && tag.trim()) {
+        emotionSet.add(tag.trim().toLowerCase());
+      }
+    }
+  }
+
+  if (emotionSet.size === 0) {
+    return Object.keys(EMOTION_STRATEGIES);
+  }
+
+  return [...emotionSet].sort((a, b) => a.localeCompare(b));
+}
+
+function selectBestVerseForEmotion(emotion) {
+  const key = String(emotion || "").toLowerCase().trim();
+
+  const direct = VERSES_DATA.filter(v =>
+    Array.isArray(v?.emotion_tags) && v.emotion_tags.some(t => String(t).toLowerCase().trim() === key)
+  );
+
+  if (direct.length > 0) {
+    return rankEmotionVerses(direct)[0];
+  }
+
+  const normalized = normalizeEmotion(key);
+  const normalizedMatches = VERSES_DATA.filter(v =>
+    Array.isArray(v?.emotion_tags) && v.emotion_tags.some(t => normalizeEmotion(String(t)) === normalized)
+  );
+
+  if (normalizedMatches.length > 0) {
+    return rankEmotionVerses(normalizedMatches)[0];
+  }
+
+  return rankEmotionVerses(VERSES_DATA)[0] || null;
+}
+
+function rankEmotionVerses(verses) {
+  const ACTION_TERMS = /(perform|act|action|mind|control|duty|devotion|steady|peace|discipline|surrender|focus|remember)/i;
+  const FAVORITE_CHAPTERS = new Set([2, 3, 6, 12, 18]);
+
+  return [...verses]
+    .map(v => {
+      let score = 0;
+      const principlesCount = Array.isArray(v?.principles) ? v.principles.length : 0;
+      if (principlesCount > 0) score += 2;
+      if (ACTION_TERMS.test(v?.translation || "")) score += 2;
+      if (FAVORITE_CHAPTERS.has(Number(v?.chapter))) score += 1;
+      const len = (v?.translation || "").length;
+      if (len >= 90 && len <= 260) score += 1;
+      return { verse: v, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .map(item => item.verse);
+}
+
+function buildSimpleExplanation(verse, emotion) {
+  const principles = Array.isArray(verse?.principles) ? verse.principles.map(p => String(p).toLowerCase()) : [];
+  const explainByPrinciple = {
+    detachment: "Do your work sincerely, but do not mentally depend on the result.",
+    duty: "Focus on doing the right responsibility in front of you today.",
+    devotion: "Offer your actions to a higher purpose, not only personal gain.",
+    discipline: "Train your mind with steady daily effort, even when it feels hard.",
+    equanimity: "Stay balanced in success and failure; both are temporary.",
+    knowledge: "See clearly before reacting; wisdom should guide action."
+  };
+
+  for (const p of principles) {
+    if (explainByPrinciple[p]) return explainByPrinciple[p];
+  }
+
+  return `For ${toTitleCaseEmotion(emotion)}, this verse asks you to stay steady, aware, and aligned with dharma.`;
+}
+
+function buildSimpleApplication(verse, emotion) {
+  const principles = Array.isArray(verse?.principles) ? verse.principles.map(p => String(p).toLowerCase()) : [];
+
+  if (principles.includes("duty")) {
+    return "Choose one important duty and complete it today without delaying.";
+  }
+  if (principles.includes("detachment")) {
+    return "Do one meaningful action today and release worry about its outcome.";
+  }
+  if (principles.includes("discipline")) {
+    return "Set a 10-minute focus block and protect it fully.";
+  }
+  if (principles.includes("equanimity")) {
+    return "When praise or blame comes today, pause and keep your response balanced.";
+  }
+
+  return `When you feel ${toTitleCaseEmotion(emotion)}, read this verse once and apply one line in a real situation today.`;
+}
+
+function toTitleCaseEmotion(emotion) {
+  return String(emotion || "neutral")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+/**
+ * Get a color/theme for an emotion (used for UI purposes)
+ */
+function getEmotionColor(emotion) {
+  const emotionColors = {
+    anxiety: "#7c9cc0",
+    fear: "#817c91",
+    grief: "#9b8fbf",
+    depression: "#657182",
+    anger: "#c47a5a",
+    envy: "#87a178",
+    greed: "#a19970",
+    pride: "#96758e",
+    lust: "#c96567",
+    confusion: "#88929b",
+    demotivated: "#a39b8b",
+    discriminated: "#b58463",
+    guilt: "#758296",
+    forgetfulness: "#a7b3ba",
+    laziness: "#9e948c",
+    loneliness: "#7a8a99",
+    hopelessness: "#717a8a",
+    forgiveness: "#8da38a",
+    temptation: "#b87268",
+    "uncontrolled mind": "#998591",
+    compassion: "#a37f7f",
+    hope: "#8fb3a0",
+    clarity: "#b0b8c2",
+    understanding: "#98acc2",
+    realization: "#c4ab82",
+    seeking: "#e8af6e",
+    peace: "#7ab89a",
+    neutral: "#e8af6e"
+  };
+
+  return emotionColors[emotion] || "#e8af6e";
+}
+
 /* ── Default export ──────────────────────────────────────────── */
 
-export default { generatePractice };
+export default { generatePractice, generateAllDailyPractices };

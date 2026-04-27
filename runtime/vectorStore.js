@@ -194,7 +194,7 @@ class VectorStore {
     }
 
     // Save FAISS index
-    faiss.writeIndex(this.index, INDEX_PATH);
+    this.index.write(INDEX_PATH);
 
     // Save metadata
     fs.writeFileSync(METADATA_PATH, JSON.stringify(this.metadata, null, 2));
@@ -212,7 +212,7 @@ class VectorStore {
     }
 
     console.log('Loading FAISS index from disk...');
-    this.index = faiss.readIndex(INDEX_PATH);
+    this.index = faiss.IndexFlatL2.read(INDEX_PATH);
     const metadataRaw = fs.readFileSync(METADATA_PATH, 'utf-8');
     this.metadata = JSON.parse(metadataRaw);
     this.isBuilt = true;
@@ -231,6 +231,12 @@ class VectorStore {
       throw new Error('Index not built. Call buildIndex() or loadIndex() first.');
     }
 
+    if (typeof query !== 'string') {
+      throw new Error('Query must be a string.');
+    }
+
+    const safeTopK = Number.isFinite(topK) ? Math.max(1, Math.floor(topK)) : 5;
+
     if (!this.embedder) {
       await this.initEmbedder();
     }
@@ -238,6 +244,9 @@ class VectorStore {
     try {
       // Normalize and embed query
       const normalizedQuery = normalizeText(query);
+      if (!normalizedQuery) {
+        return [];
+      }
       console.log(`Searching for: "${normalizedQuery}"`);
 
       const queryEmbedding = await this.embedder(normalizedQuery, {
@@ -246,12 +255,12 @@ class VectorStore {
       });
 
       const queryVector = Array.from(queryEmbedding.data);
-
-      // Convert to Float32Array
-      const queryData = new Float32Array(queryVector);
+      if (!Array.isArray(queryVector) || queryVector.length === 0) {
+        throw new Error('Embedding model returned an invalid query vector.');
+      }
 
       // Search in FAISS index
-      const { distances, labels } = this.index.search(queryData, topK);
+      const { distances, labels } = this.index.search(queryVector, safeTopK);
 
       // Build results with scores
       const results = [];

@@ -31,7 +31,7 @@ loadEnv({ path: path.resolve(__dirname, "..", ".env") });
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
 const OLLAMA_MODEL    = process.env.OLLAMA_MODEL    || "gemma:2b";
-const OLLAMA_TIMEOUT  = parseInt(process.env.OLLAMA_TIMEOUT_MS || "30000", 10);
+const OLLAMA_TIMEOUT  = parseInt(process.env.OLLAMA_TIMEOUT_MS || "120000", 10);
 
 // ---------------------------------------------------------------------------
 // Search bias presets — same as old intentAnalyzer.js (preserves retrieval behaviour)
@@ -57,7 +57,10 @@ const SEARCH_BIAS_PRESETS = {
 const VALID_EMOTIONS = [
   "anxiety", "fear", "grief", "depression", "anger", "envy",
   "greed", "pride", "compassion", "peace", "hope", "clarity",
-  "understanding", "seeking", "realization", "neutral"
+  "understanding", "seeking", "realization", "neutral",
+  "lust", "confusion", "demotivated", "discriminated", "guilt",
+  "forgetfulness", "laziness", "loneliness", "hopelessness",
+  "forgiveness", "temptation", "uncontrolled mind"
 ];
 
 const VALID_QUERY_MODES  = ["emotional", "informational", "action"];
@@ -96,11 +99,11 @@ function tokenize(query) {
 // First-person emotional phrasing — very high confidence
 const STRONG_EMOTIONAL_PATTERNS = [
   /\bi\s+(feel|am\s+feeling|felt)\b/i,
-  /\bi\s+(am|'m)\s+(so\s+)?(anxious|scared|sad|angry|stressed|depressed|worried|lonely|hopeless|broken|lost|overwhelmed)/i,
+  /\bi\s+(am|'m)\s+(so\s+)?(anxious|scared|sad|angry|stressed|depressed|worried|lonely|hopeless|broken|lost|overwhelmed|confused|demotivated|discriminated|guilty|sinful|lazy|tempted|jealous|envious|greedy|proud)/i,
   /\bi\s+can'?t\s+(sleep|cope|stop|handle|think|breathe)/i,
   /\bi\s+keep\s+(worrying|crying|thinking about|feeling)/i,
   /\bi\s+(am|feel)\s+anxious/i,
-  /\bfeeling\s+(so\s+)?(anxious|scared|sad|angry|stressed|depressed|worried|lonely|hopeless|broken)/i,
+  /\bfeeling\s+(so\s+)?(anxious|scared|sad|angry|stressed|depressed|worried|lonely|hopeless|broken|confused|demotivated|discriminated|guilty|sinful|lazy|tempted|jealous|envious|greedy|proud)/i,
 ];
 
 // Concrete informational phrasing — very high confidence
@@ -118,11 +121,24 @@ const STRONG_INFORMATIONAL_PATTERNS = [
 const KEYWORD_EMOTION_MAP = [
   { keywords: ["anxious","anxiety","stress","stressed","nervous","overwhelm","worry","worried","exam","exams","test","panic","panicking"], emotion: "anxiety" },
   { keywords: ["afraid","scared","fear","terrif","frightened","dread"], emotion: "fear" },
-  { keywords: ["sad","grief","griev","loss","lost someone","passed away","died","mourn","heartbroken"], emotion: "grief" },
-  { keywords: ["depress","hopeless","numb","empty","no point","worthless","meaningless","burnout","burned out"], emotion: "depression" },
+  { keywords: ["sad","grief","griev","loss","lost someone","passed away","died","mourn","heartbroken","death"], emotion: "grief" },
+  { keywords: ["depress","numb","empty","no point","worthless","meaningless","burnout","burned out"], emotion: "depression" },
   { keywords: ["angry","anger","rage","furious","resentment","frustrated","irritated","livid"], emotion: "anger" },
-  { keywords: ["lonely","alone","isolated","no one","nobody"], emotion: "grief" },
-  { keywords: ["guilty","guilt","ashamed","shame","regret"], emotion: "fear" },
+  { keywords: ["lonely","alone","isolated","no one","nobody"], emotion: "loneliness" },
+  { keywords: ["guilty","guilt","ashamed","shame","regret","sin","sinful"], emotion: "guilt" },
+  { keywords: ["lust","desire","horny","tempted","temptation","addicted"], emotion: "lust" },
+  { keywords: ["confused","confusion","lost","don't understand","unsure"], emotion: "confusion" },
+  { keywords: ["demotivated","unmotivated","no motivation","give up"], emotion: "demotivated" },
+  { keywords: ["discriminate","discriminated","racism","sexism","unfair","injustice"], emotion: "discriminated" },
+  { keywords: ["forget","forgetful","forgetfulness","memory"], emotion: "forgetfulness" },
+  { keywords: ["lazy","laziness","procrastinate","procrastination"], emotion: "laziness" },
+  { keywords: ["envy","envious","jealous","jealousy"], emotion: "envy" },
+  { keywords: ["greed","greedy","money","selfish"], emotion: "greed" },
+  { keywords: ["pride","proud","ego","arrogant","arrogance"], emotion: "pride" },
+  { keywords: ["forgive","forgiveness","resent"], emotion: "forgiveness" },
+  { keywords: ["peace","peaceful","calm"], emotion: "peace" },
+  { keywords: ["hopeless","hopelessness","losing hope"], emotion: "hopelessness" },
+  { keywords: ["uncontrolled mind","distracted","adhd","can't focus","overthinking"], emotion: "uncontrolled mind" },
 ];
 
 function detectEmotionFromKeywords(q) {
@@ -180,23 +196,37 @@ function preScreen(query) {
 // Only called when the pre-screener returns null.
 // ---------------------------------------------------------------------------
 function buildPrompt(query) {
-  return `Classify the emotion and intent of this message. Answer with JSON only.
+  return `You are an expert intent classifier. Analyze the user's message and determine the underlying emotion, life situation, and intent. Answer strictly with a valid JSON object.
 
-Examples:
-  Input: "I am so anxious about my exams"
-  Output: {"query_mode":"emotional","emotion":"anxiety","emotion_confidence":0.9,"emotion_runner_up":null,"situation":"exam stress","core_struggle":"The user is anxious about upcoming exams.","intent_type":"emotional_support"}
+Rules:
+1. "emotion" must be exactly one of the Valid Emotions. If the message is purely philosophical or factual, use "neutral". If they are looking for direction without strong negative feelings, use "seeking".
+2. "emotion_runner_up" can be a secondary emotion if they are feeling mixed emotions, or null.
+3. "query_mode" is "emotional" for distress/support, "informational" for philosophical questions, and "action" if they need to make a decision or need steps to follow.
+4. "intent_type" must be exactly one of the Valid Intents.
+5. "situation" should be a 2-4 word summary of their life context (e.g., "career crossroads", "family conflict", "death of a loved one").
+6. Map specific concepts to their canonical Valid Emotions: "death of a loved one" -> "grief", "feeling sinful" -> "guilt", "losing hope" -> "hopelessness", "seeking peace" -> "peace", "dealing with envy" -> "envy".
 
-  Input: "What is karma in the Bhagavad Gita?"
-  Output: {"query_mode":"informational","emotion":"neutral","emotion_confidence":0.9,"emotion_runner_up":null,"situation":"philosophical inquiry","core_struggle":"The user is seeking to understand the concept of karma.","intent_type":"philosophical_seeking"}
-
-  Input: "I lost my job and feel hopeless"
-  Output: {"query_mode":"emotional","emotion":"depression","emotion_confidence":0.85,"emotion_runner_up":"grief","situation":"job loss and hopelessness","core_struggle":"The user lost their job and is struggling with hopelessness.","intent_type":"emotional_support"}
-
-Valid emotions: anxiety, fear, grief, depression, anger, envy, greed, pride, compassion, peace, hope, clarity, understanding, seeking, realization, neutral
+Valid emotions: anxiety, fear, grief, depression, anger, envy, greed, pride, compassion, peace, hope, clarity, understanding, seeking, realization, neutral, lust, confusion, demotivated, discriminated, guilt, forgetfulness, laziness, loneliness, hopelessness, forgiveness, temptation, uncontrolled mind
 Valid query_mode: emotional, informational, action
 Valid intent_type: emotional_support, philosophical_seeking, action_guidance
 
-Input: "${query.replace(/"/g, "'")}"
+Examples:
+  Input: 'I am so anxious about my exams'
+  Output: {"query_mode":"emotional","emotion":"anxiety","emotion_confidence":0.95,"emotion_runner_up":null,"situation":"exam stress","core_struggle":"The user is overwhelmed and anxious about their upcoming exams.","intent_type":"emotional_support"}
+
+  Input: 'What is karma in the Bhagavad Gita?'
+  Output: {"query_mode":"informational","emotion":"neutral","emotion_confidence":0.90,"emotion_runner_up":null,"situation":"philosophical inquiry","core_struggle":"The user is seeking an intellectual understanding of karma.","intent_type":"philosophical_seeking"}
+
+  Input: 'I lost my job and feel hopeless'
+  Output: {"query_mode":"emotional","emotion":"depression","emotion_confidence":0.85,"emotion_runner_up":"grief","situation":"job loss","core_struggle":"The user recently lost their job and is struggling with deep feelings of hopelessness.","intent_type":"emotional_support"}
+
+  Input: 'I have two job offers and don't know which one to pick.'
+  Output: {"query_mode":"action","emotion":"seeking","emotion_confidence":0.75,"emotion_runner_up":"anxiety","situation":"career crossroads","core_struggle":"The user is facing a difficult career decision and needs guidance on how to choose.","intent_type":"action_guidance"}
+
+  Input: 'My brother betrayed my trust and I can't forgive him.'
+  Output: {"query_mode":"emotional","emotion":"anger","emotion_confidence":0.90,"emotion_runner_up":"grief","situation":"family conflict","core_struggle":"The user is holding onto anger and hurt after a betrayal by a family member.","intent_type":"emotional_support"}
+
+Input: '${query.replace(/'/g, "")}'
 Output:`;
 }
 
