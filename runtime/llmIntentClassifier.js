@@ -25,8 +25,17 @@ import { fileURLToPath } from "url";
 import path from "path";
 import { callGemini } from "./geminiClient.js";
 
-const intentFileName = fileURLToPath(import.meta.url);
-const intentDirName  = path.dirname(intentFileName);
+// Resolve a sensible directory for locating the .env file. In some serverless
+// bundlers (Netlify) `import.meta.url` may be undefined or unavailable when
+// modules are loaded as CommonJS; guard and fall back to `process.cwd()`.
+let intentDirName;
+try {
+  const intentFileName = fileURLToPath(import.meta.url);
+  intentDirName = path.dirname(intentFileName);
+} catch (e) {
+  intentDirName = process.cwd();
+}
+
 loadEnv({ path: path.resolve(intentDirName, "..", ".env") });
 
 const GEMINI_API_KEY  = process.env.GEMINI_API_KEY || "";
