@@ -1,10 +1,10 @@
-import fetch from "node-fetch"; // VERY IMPORTANT
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { getTopMatches, getConnectedVerses } from "./retrieval.js";
 import { generatePractice } from "./practiceGenerator.js";
 import { analyzeIntent } from "./llmIntentClassifier.js";
+import { callGemini } from "./geminiClient.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,9 +26,9 @@ if (fs.existsSync(purportsDataPath)) {
   );
 }
 
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.2:1b";
-const OLLAMA_TIMEOUT = parseInt(process.env.OLLAMA_TIMEOUT_MS || "120000", 10);
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+const GEMINI_TIMEOUT = parseInt(process.env.GEMINI_TIMEOUT_MS || "120000", 10);
 const TOP_K_RETRIEVAL = parseInt(process.env.TOP_K_RETRIEVAL || "9", 10);
 const TOP_K_FINAL = parseInt(process.env.TOP_K_FINAL || "3", 10);
 
@@ -355,52 +355,27 @@ function tryParseJson(text) {
   return null;
 }
 
-async function callOllama(prompt) {
-  logStage("llama_call_request", {
-    model: OLLAMA_MODEL,
-    base_url: OLLAMA_BASE_URL,
-    timeout_ms: OLLAMA_TIMEOUT
+async function callGeminiForGuidance(prompt) {
+  logStage("gemini_call_request", {
+    model: GEMINI_MODEL,
+    timeout_ms: GEMINI_TIMEOUT
   });
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT);
-
   try {
-    const res = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        prompt: prompt,
-        stream: false,
-        format: "json" // try to enforce JSON if supported
-      }),
-      signal: controller.signal
+    const text = await callGemini(prompt, {
+      apiKey: GEMINI_API_KEY,
+      model: GEMINI_MODEL,
+      timeoutMs: GEMINI_TIMEOUT,
+      systemInstruction: "Return only valid JSON that matches the requested schema."
     });
 
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      throw new Error(`Ollama API failed (${res.status}): ${await res.text()}`);
-    }
-
-    const data = await res.json();
-    const text = safeTrim(data?.response);
-
-    if (!text) {
-      throw new Error("Empty response from Ollama");
-    }
-
-    logStage("llama_call_response", { characters: text.length });
+    logStage("gemini_call_response", { characters: text.length });
     return text;
   } catch (err) {
-    clearTimeout(timeoutId);
     const reason = err.name === "AbortError"
-      ? `${OLLAMA_TIMEOUT}ms timeout exceeded`
+      ? `${GEMINI_TIMEOUT}ms timeout exceeded`
       : err.message;
-    console.error("❌ Ollama Call Error:", reason);
+    console.error("❌ Gemini Call Error:", reason);
     throw err; // Propagate error to trigger fallback
   }
 }
@@ -582,7 +557,7 @@ export async function runIntelligentPipeline(query) {
 
   // 7) LLM enhancement
   try {
-    const rawLLMOutput = await callOllama(prompt);
+    const rawLLMOutput = await callGeminiForGuidance(prompt);
     const parsedLLM = tryParseJson(rawLLMOutput);
     const validVerseIds = new Set(topVerses.map(v => `${v.chapter}-${v.verse}`));
 

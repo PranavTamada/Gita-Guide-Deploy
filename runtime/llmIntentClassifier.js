@@ -1,7 +1,7 @@
 /**
  * llmIntentClassifier.js — LLM-powered semantic intent understanding.
  *
- * Replaces the rule-based intentAnalyzer.js with a structured Ollama prompt
+ * Replaces the rule-based intentAnalyzer.js with a structured Gemini prompt
  * that understands any natural language query — including indirect, cultural,
  * or emotionally complex phrasing — and returns a canonicalized intent object
  * that the rest of the pipeline (retrieval.js, pipeline.js) can consume.
@@ -20,18 +20,18 @@
  * }
  */
 
-import fetch from "node-fetch";
 import { config as loadEnv } from "dotenv";
 import { fileURLToPath } from "url";
 import path from "path";
+import { callGemini } from "./geminiClient.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 loadEnv({ path: path.resolve(__dirname, "..", ".env") });
 
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
-const OLLAMA_MODEL    = process.env.OLLAMA_MODEL    || "gemma:2b";
-const OLLAMA_TIMEOUT  = parseInt(process.env.OLLAMA_TIMEOUT_MS || "120000", 10);
+const GEMINI_API_KEY  = process.env.GEMINI_API_KEY || "";
+const GEMINI_MODEL    = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+const GEMINI_TIMEOUT  = parseInt(process.env.GEMINI_TIMEOUT_MS || "120000", 10);
 
 // ---------------------------------------------------------------------------
 // Search bias presets — same as old intentAnalyzer.js (preserves retrieval behaviour)
@@ -233,39 +233,6 @@ Output:`;
 // ---------------------------------------------------------------------------
 // LLM call with timeout
 // ---------------------------------------------------------------------------
-async function callOllamaForIntent(prompt) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT);
-
-  try {
-    const res = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        prompt,
-        stream: false,
-        format: "json"
-      }),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      throw new Error(`Ollama HTTP ${res.status}: ${await res.text()}`);
-    }
-
-    const data = await res.json();
-    const text = (data?.response || "").trim();
-    if (!text) throw new Error("Empty Ollama response");
-    return text;
-  } catch (err) {
-    clearTimeout(timeoutId);
-    throw err;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // JSON parsing with fallback extraction
 // ---------------------------------------------------------------------------
@@ -344,7 +311,7 @@ function buildSearchBias(intentType, emotionConfidence) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule-based fallback (minimal, for when Ollama is unavailable)
+// Rule-based fallback (minimal, for when Gemini is unavailable)
 // ---------------------------------------------------------------------------
 function ruleFallback(query) {
   const q = query.toLowerCase();
@@ -398,22 +365,27 @@ export async function analyzeIntent(query) {
   }
 
   // Stage 2: Pre-screener was uncertain — call LLM for semantic understanding
-  console.log("[llmIntent] Ambiguous query — calling Ollama for semantic classification...");
+  console.log("[llmIntent] Ambiguous query — calling Gemini for semantic classification...");
 
   let core;
   try {
     const prompt = buildPrompt(raw);
-    const responseText = await callOllamaForIntent(prompt);
+    const responseText = await callGemini(prompt, {
+      apiKey: GEMINI_API_KEY,
+      model: GEMINI_MODEL,
+      timeoutMs: GEMINI_TIMEOUT,
+      systemInstruction: "Return only valid JSON that matches the requested schema."
+    });
     const parsed = tryParseJson(responseText);
 
     if (!parsed) {
-      console.warn("[llmIntent] Failed to parse LLM JSON → using rule fallback");
+      console.warn("[llmIntent] Failed to parse Gemini JSON → using rule fallback");
       core = ruleFallback(raw);
     } else {
       core = sanitizeIntentResult(parsed, raw);
     }
   } catch (err) {
-    console.warn("[llmIntent] Ollama unavailable:", err.message, "→ using rule fallback");
+    console.warn("[llmIntent] Gemini unavailable:", err.message, "→ using rule fallback");
     core = ruleFallback(raw);
   }
 
