@@ -8,14 +8,33 @@ import { projectRoot } from "./_shared.js";
 const versesDataPath = path.join(projectRoot, "data", "verses.json");
 const purportsDataPath = path.join(projectRoot, "data", "purports.json");
 
-const versesData = JSON.parse(fs.readFileSync(versesDataPath, "utf-8"));
-const verseDetailsMap = new Map(versesData.map(verse => [`${verse.chapter}-${verse.verse}`, verse]));
+let versesDataCache = null;
+let verseDetailsMapCache = null;
+let purportDetailsMapCache = null;
 
-let purportsData = [];
-let purportDetailsMap = new Map();
-if (fs.existsSync(purportsDataPath)) {
-  purportsData = JSON.parse(fs.readFileSync(purportsDataPath, "utf-8"));
-  purportDetailsMap = new Map(purportsData.map(p => [`${p.chapter}-${p.verse}`, p]));
+function loadVerseMaps() {
+  if (versesDataCache && verseDetailsMapCache && purportDetailsMapCache) {
+    return {
+      versesData: versesDataCache,
+      verseDetailsMap: verseDetailsMapCache,
+      purportDetailsMap: purportDetailsMapCache
+    };
+  }
+
+  const versesData = JSON.parse(fs.readFileSync(versesDataPath, "utf-8"));
+  const verseDetailsMap = new Map(versesData.map(verse => [`${verse.chapter}-${verse.verse}`, verse]));
+
+  let purportDetailsMap = new Map();
+  if (fs.existsSync(purportsDataPath)) {
+    const purportsData = JSON.parse(fs.readFileSync(purportsDataPath, "utf-8"));
+    purportDetailsMap = new Map(purportsData.map(p => [`${p.chapter}-${p.verse}`, p]));
+  }
+
+  versesDataCache = versesData;
+  verseDetailsMapCache = verseDetailsMap;
+  purportDetailsMapCache = purportDetailsMap;
+
+  return { versesData, verseDetailsMap, purportDetailsMap };
 }
 
 const CHAPTER_ZONES = {
@@ -158,6 +177,7 @@ function getFallbackInsight(verse, index) {
 }
 
 function enrichVerse(verse) {
+  const { verseDetailsMap, purportDetailsMap } = loadVerseMaps();
   const details = verseDetailsMap.get(`${verse.chapter}-${verse.verse}`) || {};
   const purport = purportDetailsMap.get(`${verse.chapter}-${verse.verse}`) || {};
 
@@ -224,6 +244,7 @@ function scoreVerse(verse, queryTerms, understanding) {
 }
 
 function selectTopVerses(query, topK, understanding) {
+  const { versesData } = loadVerseMaps();
   const queryTerms = unique([
     ...tokenize(query),
     ...tokenize(understanding.emotion),
@@ -261,6 +282,7 @@ function selectTopVerses(query, topK, understanding) {
 }
 
 function relatedVerses(topVerse, limit = 4) {
+  const { versesData } = loadVerseMaps();
   const topEmotionTags = new Set((topVerse.emotion_tags || []).map(normalizeEmotion));
   const topPrinciples = new Set((topVerse.principles || []).map(normalizeText));
   const topSituations = new Set((topVerse.life_situations || []).map(normalizeText));
@@ -399,6 +421,7 @@ export async function runNetlifyPipeline(query) {
 
   const understanding = await analyzeIntent(safeQuery);
   const topVerses = selectTopVerses(safeQuery, 3, understanding);
+  const { purportDetailsMap } = loadVerseMaps();
   const topVerseDetails = topVerses.map(verse => ({
     chapter: verse.chapter,
     verse: verse.verse,

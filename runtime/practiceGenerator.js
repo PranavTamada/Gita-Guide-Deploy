@@ -22,10 +22,18 @@ const __dirname = path.dirname(__filename);
 const versesDataPath = path.join(__dirname, "..", "data", "verses.json");
 
 let VERSES_DATA = [];
-try {
-  VERSES_DATA = JSON.parse(fs.readFileSync(versesDataPath, "utf-8"));
-} catch {
-  VERSES_DATA = [];
+function loadVersesData() {
+  if (VERSES_DATA.length > 0) {
+    return VERSES_DATA;
+  }
+
+  try {
+    VERSES_DATA = JSON.parse(fs.readFileSync(versesDataPath, "utf-8"));
+  } catch {
+    VERSES_DATA = [];
+  }
+
+  return VERSES_DATA;
 }
 
 /* ── Emotion → practice strategy map ─────────────────────────── */
@@ -504,6 +512,7 @@ export function generateAllDailyPractices() {
 }
 
 function getAllEmotionsFromVerses() {
+  const versesData = loadVersesData();
   const emotionSet = new Set();
 
   for (const verse of VERSES_DATA) {
@@ -523,6 +532,7 @@ function getAllEmotionsFromVerses() {
 }
 
 function selectBestVerseForEmotion(emotion) {
+  const versesData = loadVersesData();
   const key = String(emotion || "").toLowerCase().trim();
 
   const direct = VERSES_DATA.filter(v =>

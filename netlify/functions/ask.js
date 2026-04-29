@@ -11,6 +11,7 @@ export async function handler(event) {
   }
 
   try {
+    const { runNetlifyPipeline } = await import("./_pipelineLite.js");
     const body = JSON.parse(event.body || "{}");
     const query = body.query;
 
