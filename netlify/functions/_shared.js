@@ -2,9 +2,9 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const projectRoot = path.resolve(__dirname, "..", "..");
+const sharedFileName = fileURLToPath(import.meta.url);
+const sharedDirName = path.dirname(sharedFileName);
+const projectRoot = path.resolve(sharedDirName, "..", "..");
 
 export { projectRoot };
 

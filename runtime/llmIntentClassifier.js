@@ -25,9 +25,9 @@ import { fileURLToPath } from "url";
 import path from "path";
 import { callGemini } from "./geminiClient.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
-loadEnv({ path: path.resolve(__dirname, "..", ".env") });
+const intentFileName = fileURLToPath(import.meta.url);
+const intentDirName  = path.dirname(intentFileName);
+loadEnv({ path: path.resolve(intentDirName, "..", ".env") });
 
 const GEMINI_API_KEY  = process.env.GEMINI_API_KEY || "";
 const GEMINI_MODEL    = process.env.GEMINI_MODEL || "gemini-2.0-flash";
