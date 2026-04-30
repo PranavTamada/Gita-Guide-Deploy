@@ -2,5 +2,8 @@
   publish = "frontend"
   functions = "netlify/functions"
 
+[functions]
+  included_files = ["data/**"]
+
 [build.environment]
   NODE_VERSION = "20"

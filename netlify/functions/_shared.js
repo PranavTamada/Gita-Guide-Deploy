@@ -2,9 +2,25 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
-const sharedFileName = fileURLToPath(import.meta.url);
-const sharedDirName = path.dirname(sharedFileName);
-const projectRoot = path.resolve(sharedDirName, "..", "..");
+
+function findProjectRoot() {
+  let dir;
+  try {
+    dir = path.dirname(fileURLToPath(import.meta.url));
+  } catch (e) {
+    dir = process.cwd();
+  }
+  
+  while (dir !== path.parse(dir).root) {
+    if (fs.existsSync(path.join(dir, "data", "verses.json"))) {
+      return dir;
+    }
+    dir = path.dirname(dir);
+  }
+  return process.cwd();
+}
+
+const projectRoot = findProjectRoot();
 
 export { projectRoot };
 

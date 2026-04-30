@@ -17,9 +17,25 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
-const practiceFileName = fileURLToPath(import.meta.url);
-const practiceDirName = path.dirname(practiceFileName);
-const versesDataPath = path.join(practiceDirName, "..", "data", "verses.json");
+function findVersesPath() {
+  let dir;
+  try {
+    dir = path.dirname(fileURLToPath(import.meta.url));
+  } catch (e) {
+    dir = process.cwd();
+  }
+  
+  while (dir !== path.parse(dir).root) {
+    const p = path.join(dir, "data", "verses.json");
+    if (fs.existsSync(p)) {
+      return p;
+    }
+    dir = path.dirname(dir);
+  }
+  return path.join(process.cwd(), "data", "verses.json");
+}
+
+const versesDataPath = findVersesPath();
 
 let VERSES_DATA = [];
 function loadVersesData() {
